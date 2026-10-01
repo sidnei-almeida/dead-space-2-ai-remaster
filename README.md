@@ -14,17 +14,45 @@ jogo (DumpTextures=1) → texmod/_dump/0xHASH.dds
 ds2tex.py → texmod/_cache → jogo
 ```
 
-## Instalação
+## Uso rápido
+
+Tudo passa pelo `remaster.sh`:
+
+```bash
+./remaster.sh setup      # uma vez: instala PyTorch e spandrel e baixa o modelo
+./remaster.sh dump-on    # liga a coleta; depois jogue normalmente
+./remaster.sh dump-off   # desliga a coleta quando terminar de jogar
+./remaster.sh            # processa só as texturas novas e instala no jogo
+./remaster.sh status     # progresso de uma rodada em andamento (em outro terminal)
+./remaster.sh off        # volta para só os seus .tpf
+./remaster.sh on         # reativa o remaster
+```
+
+O `./remaster.sh` pode ficar rodando sozinho:
+
+- Confere se o jogo está fechado. Se você abrir o jogo no meio, ele para, para não disputar a GPU.
+- Pula tudo o que já foi feito. Dá para interromper (Ctrl+C) e rodar de novo depois.
+- Se a GPU travar, percebe pela falta de progresso, reinicia e continua de onde parou.
+- Avisa com uma notificação na área de trabalho quando termina.
+- Grava tudo em `work/pbrify4x/remaster.log`.
+
+As configurações (modelo, escala, tamanho máximo) ficam no topo do `remaster.sh`. O padrão é o
+[4x-PBRify_UpscalerV4](https://openmodeldb.info/models/4x-PBRify-UpscalerV4) (licença CC0) em 4x
+para texturas de cor e normal maps, 2x para máscaras e mapas de luz, e no máximo 2048px.
+
+Cada DDS já sai com a cadeia completa de mipmaps. Assim o jogo não precisa gerar nada ao entrar
+numa área nova, o que causava engasgos.
+
+## Instalação manual
+
+O `./remaster.sh setup` faz isto:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# PyTorch para a sua GPU (escolha um):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/xpu   # Intel Arc
-pip install torch                                                     # NVIDIA
-pip install torch --index-url https://download.pytorch.org/whl/rocm6.4 # AMD
+# NVIDIA: pip install torch torchvision
 ```
 
 Na Intel Arc, o PyTorch também precisa do driver de computação (o de Vulkan não basta):
@@ -35,28 +63,15 @@ sudo pacman -S intel-compute-runtime level-zero-loader   # Arch
 
 Instale o `torchvision` junto com o `torch` e do mesmo índice. A versão do PyPI não é compatível e dá o erro `operator torchvision::nms does not exist`.
 
-Depois baixe um modelo para a pasta `models/` (veja [models/README.md](models/README.md)).
+## Uso avançado (ds2remaster.py)
 
-## Uso
-
-**1. Coletar as texturas.** No `DS2TexInject.ini`, na pasta do jogo:
-
-```ini
-DumpTextures=1
-```
-
-Jogue normalmente. Cada textura que aparecer na tela é salva em `texmod/_dump/`. Quanto mais do jogo você percorrer, mais texturas entram. Depois volte para `DumpTextures=0`.
-
-**2. Testar com poucas texturas:**
+O `remaster.sh` chama o `ds2remaster.py`, que também pode ser usado direto, etapa por etapa:
 
 ```bash
-python3 ds2remaster.py all --model models/4x-UltraSharp.pth --limit 20
-python3 "<pasta do jogo>/DS2TexInject/ds2tex.py"
+.venv/bin/python ds2remaster.py all --model models/4x-PBRify_UpscalerV4.pth --limit 20
 ```
 
 Abra `work/preview.html` para comparar. No jogo, **F10** liga e desliga as texturas novas.
-
-**3. Rodar tudo.** Tire o `--limit`. O que já foi feito é pulado, então dá para parar e continuar depois.
 
 ### Acompanhar o progresso
 

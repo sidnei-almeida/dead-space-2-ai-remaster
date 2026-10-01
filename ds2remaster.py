@@ -17,7 +17,7 @@ Etapas (cada uma pode rodar sozinha; o que ja foi feito e pulado):
 Uso:  python3 ds2remaster.py all --game "~/.local/share/Steam/steamapps/common/Dead Space 2" \\
           --model models/4x-UltraSharp.pth --limit 20
 """
-import argparse, json, os, struct, sys, time, zipfile, html
+import argparse, html, io, json, os, struct, sys, time, zipfile
 
 import numpy as np
 from PIL import Image
@@ -61,6 +61,10 @@ def save_png(arr, path):
     os.replace(tmp, path)
 
 
+def is_own_pack(name):
+    return name.endswith('.zip') and '_ai_' in name
+
+
 def covered_hashes(game):
     """Hashes ja cobertos pelos pacotes .tpf (index.txt gerado pelo ds2tex.py)."""
     idx = os.path.join(game, 'texmod', '_cache', 'index.txt')
@@ -68,7 +72,8 @@ def covered_hashes(game):
     if os.path.exists(idx):
         for line in open(idx, encoding='utf-8', errors='ignore'):
             parts = line.strip().split('|')
-            if len(parts) >= 2 and parts[0].startswith('0x') and parts[1] != PACK_NAME:
+            # ignora os pacotes gerados por esta ferramenta (zz_ai_remaster.zip, zy_ai_teste.zip...)
+            if len(parts) >= 2 and parts[0].startswith('0x') and not is_own_pack(parts[1]):
                 out.add(parts[0].upper().replace('0X', '0x'))
     return out
 
@@ -249,7 +254,7 @@ def resize(img, w, h, method=Image.LANCZOS):
 
 
 def target_size(e, a):
-    s = a.scale
+    s = a.mask_scale if e['class'] == 'mask' else a.scale
     w, h = e['w'] * s, e['h'] * s
     while max(w, h) > a.max_size and min(w, h) > 4:
         w, h = w // 2, h // 2
@@ -271,11 +276,12 @@ def process(up, e, src, a):
         # normal map nunca passa pelo modelo de foto: Lanczos + renormalizacao
         rgb = renormalize(resize(rgba[..., :3], ow, oh))
     elif cls == 'normal_ag':
+        # X no alpha, Y no verde. R e B nao sao normal (no DS2 valem 0; o shader pode usar):
+        # ficam iguais ao original, so redimensionados.
         xy = resize(np.stack([rgba[..., 3], rgba[..., 1]], -1), ow, oh)
         n = renormalize(xy)
-        rgb = np.stack([np.ones_like(n[..., 0]), n[..., 1], np.zeros_like(n[..., 0])], -1)
-        alpha = n[..., 0]
-        return np.concatenate([rgb, alpha[..., None]], -1)
+        rb = resize(np.stack([rgba[..., 0], rgba[..., 2]], -1), ow, oh)
+        return np.stack([rb[..., 0], n[..., 1], rb[..., 1], n[..., 0]], -1)
     elif cls == 'mask' and not a.ai_masks:
         rgb = resize(rgba[..., :3], ow, oh)
     else:
@@ -291,10 +297,17 @@ def process(up, e, src, a):
 
 
 def todo(man, a):
+    cutoff = None
+    if a.recent:
+        # o dump grava na ordem em que o jogo carrega: os mais recentes sao da area do ultimo save
+        times = {h: os.path.getmtime(e['src']) for h, e in man.items() if os.path.exists(e['src'])}
+        cutoff = max(times.values()) - a.recent * 60
     for h, e in sorted(man.items()):
         if e['class'] == 'skip' or e['covered'] or h in a.rejected:
             continue
         if a.only and e['class'] not in a.only:
+            continue
+        if cutoff is not None and times.get(h, 0) < cutoff:
             continue
         yield h, e
 
@@ -340,10 +353,10 @@ def cmd_upscale(a):
         log('  [%*d/%d %5.1f%%] %s %-9s %4dx%-4d -> %4dx%-4d %5.1fs | decorrido %s | faltam ~%s%s' % (
             len(str(total)), i, total, 100.0 * i / total, h, e['class'], e['w'], e['h'], *target_size(e, a),
             time.time() - t1, fmt_time(el), fmt_time(eta), ' | erros %d' % errors if errors else ''))
-        if i % 5 == 0 or i == total:
-            write_status(a, etapa='upscale', feitas=i, total=total, porcentagem=round(100.0 * i / total, 1),
-                         erros=errors, decorrido=fmt_time(el), faltam=fmt_time(eta), atual=h, por_classe=by_class,
-                         modelo=os.path.basename(a.model) if a.model else 'lanczos')
+        # a cada textura: o remaster.sh usa o horario deste arquivo para detectar GPU travada
+        write_status(a, etapa='upscale', feitas=i, total=total, porcentagem=round(100.0 * i / total, 1),
+                     erros=errors, decorrido=fmt_time(el), faltam=fmt_time(eta), atual=h, por_classe=by_class,
+                     modelo=os.path.basename(a.model) if a.model else 'lanczos')
     log('%d texturas processadas em %s (%d erros)' % (done, fmt_time(time.time() - t0), errors))
 
 
@@ -361,6 +374,63 @@ def cmd_status(a):
 
 # ---------------------------------------------------------------- encode / pack
 
+def mip_chain(img, binary_alpha=False):
+    """Nivel 0 + reducoes 2x ate 1x1 (o plugin nao precisa gerar nada durante o jogo)."""
+    levels = [img]
+    while max(levels[-1].size) > 1:
+        w, h = levels[-1].size
+        m = levels[-1].resize((max(1, w // 2), max(1, h // 2)), Image.BOX)
+        if binary_alpha:  # DXT1: alpha de 1 bit (grades, folhagem) continua recortado
+            r, g, b, al = m.split()
+            m = Image.merge('RGBA', (r, g, b, al.point(lambda v: 255 if v >= 128 else 0)))
+        levels.append(m)
+    return levels
+
+
+def dds_bytes(img, fourcc, mips=True):
+    """DDS com cabecalho igual ao dos pacotes TexMod (o do Pillow traz pitch/bits invalidos)
+    e cadeia completa de mipmaps. fourcc: b'DXT1', b'DXT5' ou None (A8R8G8B8 sem compressao)."""
+    w, h = img.size
+    levels = mip_chain(img, fourcc == b'DXT1') if mips else [img]
+    hd = [0] * 31
+    hd[0] = 124
+    hd[2], hd[3] = h, w
+    hd[18] = 32                                   # tamanho do DDS_PIXELFORMAT
+    hd[26] = 0x1000                               # DDSCAPS_TEXTURE
+    if len(levels) > 1:
+        hd[1] |= 0x20000                          # DDSD_MIPMAPCOUNT
+        hd[6] = len(levels)
+        hd[26] |= 0x400008                        # DDSCAPS_COMPLEX | DDSCAPS_MIPMAP
+    payload = []
+    if fourcc:
+        block = 8 if fourcc == b'DXT1' else 16
+        for lv in levels:
+            lw, lh = lv.size
+            size = max(1, (lw + 3) // 4) * max(1, (lh + 3) // 4) * block
+            if lw % 4 or lh % 4:  # o encoder do Pillow quer multiplos de 4: completa o bloco
+                pad = Image.new('RGBA', ((lw + 3) // 4 * 4, (lh + 3) // 4 * 4))
+                pad.paste(lv, (0, 0))
+                lv = pad
+            buf = io.BytesIO()
+            lv.save(buf, 'DDS', pixel_format=fourcc.decode())
+            data = buf.getvalue()[128:]
+            if len(data) != size:
+                raise ValueError('Pillow gerou %d bytes, esperado %d (%dx%d)' % (len(data), size, lw, lh))
+            payload.append(data)
+        hd[1] |= 0x81007                          # CAPS|HEIGHT|WIDTH|PIXELFORMAT|LINEARSIZE
+        hd[4] = len(payload[0])
+        hd[19], hd[20] = 4, struct.unpack('<I', fourcc)[0]
+    else:
+        for lv in levels:
+            r, g, b, al = lv.split()
+            payload.append(Image.merge('RGBA', (b, g, r, al)).tobytes())  # BGRA = A8R8G8B8
+        hd[1] |= 0x100F                           # CAPS|HEIGHT|WIDTH|PITCH|PIXELFORMAT
+        hd[4] = w * 4
+        hd[19], hd[21] = 0x41, 32                 # RGB | ALPHAPIXELS
+        hd[22], hd[23], hd[24], hd[25] = 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000
+    return b'DDS ' + struct.pack('<31I', *hd) + b''.join(payload)
+
+
 def cmd_encode(a):
     man = load_manifest(a)
     updir, ddsdir = os.path.join(a.work, 'up'), os.path.join(a.work, 'dds')
@@ -374,14 +444,15 @@ def cmd_encode(a):
             continue
         img = Image.open(src).convert('RGBA')
         fmt = e['fmt']
-        tmp = dst + '.tmp'
         if fmt == 'DXT1':
-            img.save(tmp, 'DDS', pixel_format='DXT1')
+            data = dds_bytes(img, b'DXT1')
         elif fmt in ('DXT3', 'DXT5', 'DXT2', 'DXT4'):
-            img.save(tmp, 'DDS', pixel_format='DXT5')
+            data = dds_bytes(img, b'DXT5')
         else:
-            img.save(tmp, 'DDS')  # A8R8G8B8 sem compressao, igual a original
-        os.replace(tmp, dst)
+            data = dds_bytes(img, None)  # A8R8G8B8 sem compressao, igual a original
+        with open(dst + '.tmp', 'wb') as f:
+            f.write(data)
+        os.replace(dst + '.tmp', dst)
         n += 1
     log('%d DDS gerados em %s' % (n, ddsdir))
 
@@ -393,7 +464,7 @@ def cmd_pack(a):
     entries = [(h, p) for h, p in entries if os.path.exists(p)]
     if not entries:
         sys.exit('nada para empacotar (rode upscale e encode antes)')
-    dst = os.path.join(a.game, 'texmod', PACK_NAME)
+    dst = os.path.join(a.game, 'texmod', a.pack_name)
     tmp = dst + '.tmp'
     with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_STORED) as z:
         z.writestr('texmod.def', ''.join('%s|%s.dds\r\n' % (h, h) for h, _ in entries))
@@ -476,10 +547,13 @@ def main():
     ap.add_argument('--model', help='modelo de upscale (.pth/.safetensors, ex.: 4x-UltraSharp)')
     ap.add_argument('--cleanup', help='modelo 1x opcional aplicado antes (remove artefatos DXT)')
     ap.add_argument('--scale', type=int, default=2, help='fator final (padrao 2)')
+    ap.add_argument('--mask-scale', type=int, help='fator para mascaras/mapas de luz (padrao: igual a --scale)')
     ap.add_argument('--max-size', type=int, default=2048, help='lado maximo (padrao 2048)')
     ap.add_argument('--min-size', type=int, default=64, help='ignora texturas menores que isso')
     ap.add_argument('--tile', type=int, default=544, help='tamanho do bloco na GPU')
     ap.add_argument('--only', nargs='+', choices=CLASSES, help='so estas classes')
+    ap.add_argument('--recent', type=float, help='so texturas salvas nos ultimos N minutos do dump')
+    ap.add_argument('--pack-name', default=PACK_NAME, help='nome do pacote (padrao %s)' % PACK_NAME)
     ap.add_argument('--limit', type=int, help='processa no maximo N texturas')
     ap.add_argument('--ai-alpha', action='store_true', help='usa o modelo tambem no canal alpha')
     ap.add_argument('--ai-masks', action='store_true', help='usa o modelo tambem em mascaras/specular')
@@ -487,6 +561,10 @@ def main():
     ap.add_argument('--force', action='store_true', help='refaz mesmo o que ja existe')
     a = ap.parse_args()
     a.game, a.work = os.path.abspath(os.path.expanduser(a.game)), os.path.abspath(a.work)
+    if a.mask_scale is None:
+        a.mask_scale = a.scale
+    if not is_own_pack(a.pack_name):
+        sys.exit('--pack-name precisa terminar em .zip e conter "_ai_" (ex.: zy_ai_teste.zip)')
     rej = os.path.join(a.work, 'rejected.txt')
     a.rejected = {l.strip() for l in open(rej)} if os.path.exists(rej) else set()
 
