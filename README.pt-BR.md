@@ -132,6 +132,7 @@ Abra o Dead Space 2 pelo Steam, normalmente.
 |---|---|
 | `./remaster.sh` | Processa as texturas novas e instala o resultado no jogo. |
 | `./remaster.sh status` | Progresso, tempo restante e erros de uma rodada em andamento. |
+| `./remaster.sh preview` | Gera uma página com o original e a IA lado a lado, para achar e rejeitar resultados ruins. |
 | `./remaster.sh dump-on` / `dump-off` | Liga ou desliga a coleta de texturas enquanto você joga. |
 | `./remaster.sh off` | Desativa o remaster (ficam só os seus `.tpf`). |
 | `./remaster.sh on` | Ativa de novo. |
@@ -157,7 +158,7 @@ Ficam no topo do `remaster.sh`:
 |---|---|
 | **`GPU: NAO ENCONTRADA`** | O PyTorch não está vendo a GPU. Na Intel Arc, instale `intel-compute-runtime` e `level-zero-loader`. |
 | **O jogo fecha ao entrar em áreas novas ou depois de muito tempo** | O Dead Space 2 é um programa de 32 bits e pode ficar sem memória. Diminua `SCALE` para `2` ou `MAX_SIZE` para `1024` e rode o `./remaster.sh` de novo, ou coloque `Pool=default` no `DS2TexInject.ini`. |
-| **Alguma textura ficou estranha** | Aperte **F10** para confirmar. Abra o `work/pbrify4x/preview.html`, ache a textura e coloque o hash dela em `work/pbrify4x/rejected.txt`. A próxima rodada deixa ela de fora. |
+| **Alguma textura ficou estranha** | Aperte **F10** para confirmar. Rode `./remaster.sh preview`, abra a página que ele mostra, ache a textura e coloque o hash dela em `work/pbrify4x/rejected.txt`. A próxima rodada deixa ela de fora. |
 | **O jogo engasga ao entrar em áreas novas** | Confira se o DS2TexInject está atualizado e se o Pillow está instalado (`sudo pacman -S python-pillow`), depois rode `./remaster.sh on`. As texturas passam a ser carregadas já prontas. |
 | **Qualquer outra coisa** | Veja o `work/pbrify4x/remaster.log` e abra uma issue com ele. |
 

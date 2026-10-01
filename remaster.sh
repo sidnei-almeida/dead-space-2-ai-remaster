@@ -3,6 +3,7 @@
 #
 #   ./remaster.sh            processa as texturas novas do dump e instala no jogo (pode deixar rodando)
 #   ./remaster.sh status     mostra o progresso de uma rodada em andamento
+#   ./remaster.sh preview    gera uma pagina com original x IA lado a lado (para rejeitar texturas ruins)
 #   ./remaster.sh dump-on    liga a coleta de texturas (jogue normalmente depois)
 #   ./remaster.sh dump-off   desliga a coleta
 #   ./remaster.sh on         ativa o pacote da IA no jogo
@@ -140,6 +141,13 @@ cmd_status() {
     [ -f "$LOG" ] && { echo "--- ultimas linhas do log ($LOG):"; grep -v '^\s*\[' "$LOG" | tail -5; }
 }
 
+cmd_preview() {
+    [ -x "$PY" ] || die "ambiente nao instalado. Rode primeiro: ./remaster.sh setup"
+    "$PY" ds2remaster.py preview "${OPTS[@]}" 2>&1 | tail -1
+    echo "Abra no navegador: $(readlink -f "$WORK/preview.html")"
+    echo "Para tirar uma textura do remaster: coloque o hash dela em $WORK/rejected.txt e rode ./remaster.sh"
+}
+
 cmd_on() {
     need_game_closed
     if [ -f "$TEXMOD/_ai_off/$PACK" ]; then mv "$TEXMOD/_ai_off/$PACK" "$TEXMOD/"; fi
@@ -160,10 +168,11 @@ mkdir -p "$WORK"
 case "${1:-run}" in
     run) cmd_run ;;
     status) cmd_status ;;
+    preview) cmd_preview ;;
     dump-on) set_dump 1; say "coleta LIGADA: jogue normalmente, as texturas novas vao para texmod/_dump" ;;
     dump-off) set_dump 0; say "coleta DESLIGADA" ;;
     on) cmd_on ;;
     off) cmd_off ;;
     setup) cmd_setup ;;
-    *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

@@ -132,6 +132,7 @@ Launch Dead Space 2 from Steam as usual.
 |---|---|
 | `./remaster.sh` | Processes new textures and installs the result in the game. |
 | `./remaster.sh status` | Progress, time left and errors of a running job. |
+| `./remaster.sh preview` | Builds a page with original and AI side by side, to spot and reject bad results. |
 | `./remaster.sh dump-on` / `dump-off` | Starts or stops collecting textures while you play. |
 | `./remaster.sh off` | Turns the remaster off (only your `.tpf` packs stay). |
 | `./remaster.sh on` | Turns it back on. |
@@ -157,7 +158,7 @@ They live at the top of `remaster.sh`:
 |---|---|
 | **`GPU: NAO ENCONTRADA`** | PyTorch can't see the GPU. On Intel Arc, install `intel-compute-runtime` and `level-zero-loader`. |
 | **The game crashes when entering new areas, or after a long session** | Dead Space 2 is a 32-bit program and can run out of memory. Lower `SCALE` to `2` or `MAX_SIZE` to `1024`, run `./remaster.sh` again, or set `Pool=default` in `DS2TexInject.ini`. |
-| **Some texture looks wrong** | Press **F10** to confirm. Open `work/pbrify4x/preview.html`, find it, and add its hash to `work/pbrify4x/rejected.txt`. The next run leaves it out. |
+| **Some texture looks wrong** | Press **F10** to confirm. Run `./remaster.sh preview`, open the page it prints, find the texture, and add its hash to `work/pbrify4x/rejected.txt`. The next run leaves it out. |
 | **The game stutters when entering new areas** | Make sure DS2TexInject is up to date and Pillow is installed (`sudo pacman -S python-pillow`), then run `./remaster.sh on`. Textures will be loaded game-ready. |
 | **Anything else** | Check `work/pbrify4x/remaster.log` and open an issue with it. |
 
