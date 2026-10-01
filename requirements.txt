@@ -1,0 +1,4 @@
+numpy
+pillow>=11.2
+spandrel
+# torch: instale a versao da sua GPU (veja o README)

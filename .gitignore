@@ -1,0 +1,6 @@
+work/
+models/*
+!models/README.md
+.venv/
+__pycache__/
+*.zip
