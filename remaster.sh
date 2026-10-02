@@ -17,10 +17,13 @@
 GAME="${GAME:-$HOME/.local/share/Steam/steamapps/common/Dead Space 2}"
 MODEL="${MODEL:-models/4x-UltraSharp.pth}"
 MODEL_URL="https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
-SCALE=2            # texturas de cor e normal maps
-MASK_SCALE=2       # mascaras, specular e mapas de luz (ganham pouco e ocupam muita memoria)
-MAX_SIZE=2048      # lado maximo de qualquer textura
-WORK="${WORK:-work/ultrasharp2x}"
+SCALE="${SCALE:-2}"            # texturas de cor e normal maps
+MASK_SCALE="${MASK_SCALE:-2}"  # mascaras, specular e mapas de luz (ganham pouco e ocupam muita memoria)
+MAX_SIZE="${MAX_SIZE:-2048}"   # lado maximo de qualquer textura
+WORK="${WORK:-work/ultrasharp${SCALE}x}"
+# Rodada experimental em 4x (o 2x fica guardado em work/ultrasharp2x; o pacote no jogo e substituido):
+#   SCALE=4 MAX_SIZE=4096 ./remaster.sh run
+# Para voltar ao 2x depois: ./remaster.sh run (reaproveita o que ja foi feito, so refaz DDS e pacote)
 PACK="zz_ai_remaster.zip"
 STALL_SECONDS=300  # sem progresso por esse tempo = GPU travada: reinicia e continua de onde parou
 MAX_RESTARTS=5
@@ -136,7 +139,7 @@ cmd_run() {
     # o pacote de teste antigo e substituido pelo completo
     [ -f "$TEXMOD/zy_ai_teste.zip" ] && mkdir -p "$TEXMOD/_ai_off" && mv "$TEXMOD/zy_ai_teste.zip" "$TEXMOD/_ai_off/"
     rm -f "$TEXMOD/_ai_off/$PACK"
-    "$PY" ds2remaster.py pack "${OPTS[@]}" 2>&1 | head -2 | tail -1 | tee -a "$LOG" || die "pack falhou"
+    "$PY" ds2remaster.py pack "${OPTS[@]}" 2>&1 | sed -n 2p | tee -a "$LOG" || die "pack falhou"
     need_game_closed
     say "5/5 instalando no jogo"
     rebuild_cache
