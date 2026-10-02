@@ -209,6 +209,17 @@ print(sum(1 for h in files if h not in known))
 PY
 }
 
+# quantas texturas o manifest marcou como puladas (pequenas/cor unica) e cobertas pelos .tpf
+count_left_out() {
+    "$PY" - "$WORK/manifest.json" 2>/dev/null <<'PY' || echo "? ?"
+import json, os, sys
+m = json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {}
+cov = sum(1 for e in m.values() if e.get('covered'))
+skip = sum(1 for e in m.values() if not e.get('covered') and e.get('class') == 'skip')
+print(skip, cov)
+PY
+}
+
 count_files() { [ -d "$1" ] && find "$1" -maxdepth 1 -type f -name "$2" | wc -l || echo 0; }
 
 last_run() {  # "[22:17:31] ===== pronto em 2 min. Pode abrir o jogo. =====" -> "as 22:17, levou 2 min"
@@ -221,8 +232,9 @@ last_run() {  # "[22:17:31] ===== pronto em 2 min. Pode abrir o jogo. =====" -> 
 line() { printf '  %-20s %s\n' "$1" "$2"; }
 
 menu_header() {
-    local new dump_n done_n pack_sz
+    local new dump_n done_n pack_sz skip_n cov_n
     NEW_COUNT=$(count_new)
+    read -r skip_n cov_n < <(count_left_out)
     dump_n=$(count_files "$TEXMOD/_dump" '*.dds')
     done_n=$(count_files "$WORK/up" '*.png')
     pack_sz=$(du -h "$TEXMOD/$PACK" 2>/dev/null | cut -f1)
@@ -240,8 +252,10 @@ menu_header() {
     echo
     line "Texturas coletadas" "$dump_n"
     line "Ja remasterizadas" "$done_n"
+    line "Puladas" "${C_DIM}${skip_n}  (pequenas demais ou de cor unica)${C_0}"
+    line "Dos seus mods" "${C_DIM}${cov_n}  (seus .tpf ja cuidam delas)${C_0}"
     if [ "$NEW_COUNT" = "0" ]; then line "Esperando" "${C_DIM}0${C_0}"
-    else line "Esperando" "${C_WARN}${NEW_COUNT}${C_0} ${C_DIM}novas no dump${C_0}"; fi
+    else line "Esperando" "${C_WARN}${NEW_COUNT}${C_0} ${C_DIM}novas, ainda nao processadas${C_0}"; fi
     line "Modelo" "${C_DIM}$(basename "$MODEL" .pth), ${SCALE}x, ate ${MAX_SIZE}px${C_0}"
     printf '\n'
 }

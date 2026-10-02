@@ -66,7 +66,9 @@ e um menu abre. Escolha com as setas e aperte Enter:
 
   Texturas coletadas   5292
   Ja remasterizadas    3458
-  Esperando            917 novas no dump
+  Puladas              831  (pequenas demais ou de cor unica)
+  Dos seus mods        86  (seus .tpf ja cuidam delas)
+  Esperando            917 novas, ainda nao processadas
   Modelo               4x-UltraSharp, 2x, ate 2048px
 
   O que voce quer fazer? (setas + Enter, Esc sai)
