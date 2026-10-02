@@ -25,7 +25,8 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GAME = os.path.expanduser('~/.local/share/Steam/steamapps/common/Dead Space 2')
 PACK_NAME = 'zz_ai_remaster.zip'  # "zz_": fica por ultimo, pacotes feitos a mao tem prioridade
-CLASSES = ('diffuse', 'normal', 'normal_ag', 'mask')
+CLASSES = ('diffuse', 'normal', 'normal_ag', 'mask', 'smooth')
+SMOOTH_DETAIL = 0.008  # abaixo disso a textura e um degrade (brilho, facho de luz, mapa de dados)
 
 
 # ---------------------------------------------------------------- utilidades
@@ -104,7 +105,20 @@ def classify(rgba):
     if np.abs(r - g).mean() < 0.01 and np.abs(g - b).mean() < 0.01:
         return 'mask', has_alpha
 
+    # brilhos, fachos de luz e degrades: nao ha detalhe para recuperar, e a IA inventa textura
+    # (aneis e rugas que aparecem na luz da lanterna). Vao so com redimensionamento.
+    if fine_detail(rgba[..., :3]) < SMOOTH_DETAIL:
+        return 'smooth', has_alpha
+
     return 'diffuse', has_alpha
+
+
+def fine_detail(rgb):
+    """Quanto detalhe fino a textura tem (media de |imagem - versao borrada|), medido em ate 256px."""
+    f = max(1, max(rgb.shape[:2]) // 256)
+    if f > 1:
+        rgb = resize(rgb, max(1, rgb.shape[1] // f), max(1, rgb.shape[0] // f))
+    return float(np.abs(rgb - lowpass(rgb, 4)).mean())
 
 
 def cmd_scan(a):
@@ -115,7 +129,7 @@ def cmd_scan(a):
     covered = covered_hashes(a.game)
     man = load_manifest(a)
     files = sorted(f for f in os.listdir(dump) if f.lower().endswith('.dds') and f.startswith('0x'))
-    n_new = 0
+    n_new = n_changed = 0
     for i, f in enumerate(files):
         h = f[:10].upper().replace('0X', '0x')
         src = os.path.join(dump, f)
@@ -138,6 +152,13 @@ def cmd_scan(a):
                     e['class'], e['reason'] = 'skip', 'cor unica'
             except Exception as ex:
                 e['class'], e['reason'] = 'skip', 'erro lendo: %s' % ex
+        old = man.get(h)
+        if old and old.get('class') != e['class']:
+            # classificacao mudou (ex.: virou 'smooth'): o resultado antigo e refeito na proxima rodada
+            for stale in (os.path.join(a.work, 'up', h + '.png'), os.path.join(a.work, 'dds', h + '.dds')):
+                if os.path.exists(stale):
+                    os.remove(stale)
+            n_changed += 1
         man[h] = e
         n_new += 1
         if n_new % 200 == 0:
@@ -147,7 +168,7 @@ def cmd_scan(a):
     for e in man.values():
         k = 'coberta por .tpf' if e['covered'] else e['class']
         counts[k] = counts.get(k, 0) + 1
-    log('%d texturas no manifest (%d novas)' % (len(man), n_new))
+    log('%d texturas no manifest (%d novas, %d mudaram de classe e serao refeitas)' % (len(man), n_new, n_changed))
     for k in sorted(counts):
         log('  %-18s %d' % (k, counts[k]))
 
@@ -268,21 +289,30 @@ def renormalize(xy):
     return np.stack([x / n, y / n, z / n], -1) * 0.5 + 0.5
 
 
+def upscale_xy(a, x, y, ow, oh):
+    """Aumenta os componentes X e Y de um normal map. Com --normal-model, usa um modelo treinado
+    em normal maps no formato RG0 (X no vermelho, Y no verde, azul zerado); senao, Lanczos."""
+    nup = getattr(a, 'nup', None)
+    if nup and nup.models:
+        out = nup.rgb(np.stack([x, y, np.zeros_like(x)], -1), ow, oh)
+        return out[..., :2]
+    return resize(np.stack([x, y], -1), ow, oh)
+
+
 def process(up, e, src, a):
     rgba = load_rgba(src)
     ow, oh = target_size(e, a)
     cls = e['class']
     if cls == 'normal':
-        # normal map nunca passa pelo modelo de foto: Lanczos + renormalizacao
-        rgb = renormalize(resize(rgba[..., :3], ow, oh))
+        # normal map nunca passa pelo modelo de foto: modelo de normal map (ou Lanczos) + renormalizacao
+        rgb = renormalize(upscale_xy(a, rgba[..., 0], rgba[..., 1], ow, oh))
     elif cls == 'normal_ag':
         # X no alpha, Y no verde. R e B nao sao normal (no DS2 valem 0; o shader pode usar):
         # ficam iguais ao original, so redimensionados.
-        xy = resize(np.stack([rgba[..., 3], rgba[..., 1]], -1), ow, oh)
-        n = renormalize(xy)
+        n = renormalize(upscale_xy(a, rgba[..., 3], rgba[..., 1], ow, oh))
         rb = resize(np.stack([rgba[..., 0], rgba[..., 2]], -1), ow, oh)
         return np.stack([rb[..., 0], n[..., 1], rb[..., 1], n[..., 0]], -1)
-    elif cls == 'mask' and not a.ai_masks:
+    elif cls == 'smooth' or (cls == 'mask' and not a.ai_masks):
         rgb = resize(rgba[..., :3], ow, oh)
     else:
         rgb = up.rgb(rgba[..., :3], ow, oh)
@@ -337,6 +367,8 @@ def cmd_upscale(a):
     if not pending:
         return
     up = Upscaler(a.model, a.tile, a.cleanup, not a.no_color_lock)
+    # normal map: a trava mantem a orientacao geral das superficies do original; o modelo so traz o relevo fino
+    a.nup = Upscaler(a.normal_model, a.tile, None, True) if a.normal_model else None
     t0, done, errors, total = time.time(), 0, 0, len(pending)
     by_class = {}
     for i, (h, e) in enumerate(pending, 1):
@@ -545,6 +577,7 @@ def main():
     ap.add_argument('--dump', help='pasta do dump (padrao: <jogo>/texmod/_dump)')
     ap.add_argument('--work', default=os.path.join(HERE, 'work'), help='pasta de trabalho')
     ap.add_argument('--model', help='modelo de upscale (.pth/.safetensors, ex.: 4x-UltraSharp)')
+    ap.add_argument('--normal-model', help='modelo para normal maps no formato RG0 (ex.: 4x-Normal-RG0-BC1)')
     ap.add_argument('--cleanup', help='modelo 1x opcional aplicado antes (remove artefatos DXT)')
     ap.add_argument('--scale', type=int, default=2, help='fator final (padrao 2)')
     ap.add_argument('--mask-scale', type=int, help='fator para mascaras/mapas de luz (padrao: igual a --scale)')

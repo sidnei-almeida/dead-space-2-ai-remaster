@@ -13,12 +13,12 @@
 # As configuracoes ficam logo abaixo. Para mudar, edite este arquivo.
 
 GAME="${GAME:-$HOME/.local/share/Steam/steamapps/common/Dead Space 2}"
-MODEL="${MODEL:-models/4x-PBRify_UpscalerV4.pth}"
-MODEL_URL="https://github.com/Kim2091/Kim2091-Models/releases/download/4x-PBRify_UpscalerV4/4x-PBRify_UpscalerV4.pth"
-SCALE=4            # texturas de cor e normal maps
+MODEL="${MODEL:-models/4x-UltraSharp.pth}"
+MODEL_URL="https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
+SCALE=2            # texturas de cor e normal maps
 MASK_SCALE=2       # mascaras, specular e mapas de luz (ganham pouco e ocupam muita memoria)
 MAX_SIZE=2048      # lado maximo de qualquer textura
-WORK="${WORK:-work/pbrify4x}"
+WORK="${WORK:-work/ultrasharp2x}"
 PACK="zz_ai_remaster.zip"
 STALL_SECONDS=300  # sem progresso por esse tempo = GPU travada: reinicia e continua de onde parou
 MAX_RESTARTS=5

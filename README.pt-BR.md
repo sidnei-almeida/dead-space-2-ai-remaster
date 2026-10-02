@@ -8,7 +8,7 @@ Linux · Intel Arc · NVIDIA · PyTorch · Funciona com o DS2TexInject</p>
 <p align="center">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-supported-3dffb0?style=for-the-badge&logo=linux&logoColor=white&labelColor=0d1a1f">
   <img alt="Intel Arc" src="https://img.shields.io/badge/Intel%20Arc-tested-5ad8ff?style=for-the-badge&logo=intel&logoColor=white&labelColor=0d1a1f">
-  <img alt="Modelo de IA CC0" src="https://img.shields.io/badge/AI%20model-CC0-5ad8ff?style=for-the-badge&labelColor=0d1a1f">
+  <img alt="IA roda no seu PC" src="https://img.shields.io/badge/AI-runs%20locally-5ad8ff?style=for-the-badge&labelColor=0d1a1f">
   <img alt="Licença MIT" src="https://img.shields.io/badge/license-MIT-ff5a3c?style=for-the-badge&labelColor=0d1a1f">
 </p>
 
@@ -24,7 +24,7 @@ O Dead Space 2 é de 2011, e a maior parte das texturas dele tem entre 128 e 512
 
 **Esta ferramenta remasteriza essas texturas com IA.** Ela pega as texturas originais direto do jogo, passa cada uma por um modelo treinado em texturas de jogos antigos e empacota o resultado para o jogo carregar no lugar da original. Nenhum arquivo do jogo é modificado, e uma tecla (**F10**) alterna entre o original e o remaster enquanto você joga.
 
-- 🧠 **IA open source, rodando no seu PC.** Modelo padrão: [4x-PBRify_UpscalerV4](https://openmodeldb.info/models/4x-PBRify-UpscalerV4), feito para texturas de jogos dos anos 2000 e com licença CC0.
+- 🧠 **IA open source, rodando no seu PC.** Modelo padrão: [4x-UltraSharp](https://openmodeldb.info/models/4x-UltraSharp), leve, rápido e fiel: deixa a textura mais nítida e limpa a compressão sem inventar detalhe.
 - 🎨 **Fiel ao original.** Uma trava de cor mantém as cores e a iluminação originais; a IA só acrescenta detalhe fino. Nada de redesenhar, nada de logos inventados.
 - 🧩 **Seus mods vêm primeiro.** Texturas que já estão nos seus pacotes `.tpf` (trajes 4K, Return to Titan...) são puladas e ficam exatamente como os autores fizeram.
 - 🛌 **Roda sozinho.** Um comando faz tudo, sobrevive a travamentos da GPU, continua de onde parou e avisa com uma notificação quando termina.
@@ -101,7 +101,7 @@ Feche o jogo e rode:
 
 Só isso. Ele lê o dump, roda a IA, gera os DDS, monta o pacote e instala no jogo. Pode deixar rodando sozinho:
 
-- ⏱️ **A primeira rodada demora** (de 1 a 2 horas numa Intel Arc B580). As próximas só processam as texturas novas do dump.
+- ⏱️ **A primeira rodada demora** (de 15 a 30 minutos numa Intel Arc B580). As próximas só processam as texturas novas do dump.
 - 🔁 **Pare quando quiser** com Ctrl+C. Rode de novo e ele continua de onde parou.
 - 🛡️ **Se a GPU travar**, ele percebe a falta de progresso, reinicia e segue.
 - 🎮 **Se você abrir o jogo no meio**, ele para, em vez de disputar a GPU com o jogo.
@@ -112,7 +112,7 @@ Acompanhe de outro terminal:
 ```
 $ ./remaster.sh status
 upscale [#########...........] 46.2%  1422/3079
-decorrido 31m05s | faltam ~36m12s | erros 0 | modelo 4x-PBRify_UpscalerV4.pth
+decorrido 31m05s | faltam ~36m12s | erros 0 | modelo 4x-UltraSharp.pth
 por classe: diffuse 702, mask 611, normal_ag 109
 situacao: RODANDO
 ```
@@ -144,11 +144,11 @@ Ficam no topo do `remaster.sh`:
 
 | Configuração | Padrão | O que faz |
 |---|---|---|
-| `MODEL` | `4x-PBRify_UpscalerV4` | Qualquer modelo que o [spandrel](https://github.com/chaiNNer-org/spandrel) carregue: ESRGAN, SPAN, DAT, HAT... Veja a [OpenModelDB](https://openmodeldb.info). |
-| `SCALE` | `4` | Fator de aumento para texturas de cor e normal maps. |
+| `MODEL` | `4x-UltraSharp` | Qualquer modelo que o [spandrel](https://github.com/chaiNNer-org/spandrel) carregue: ESRGAN, SPAN, DAT, HAT... Veja a [OpenModelDB](https://openmodeldb.info). |
+| `SCALE` | `2` | Fator de aumento para texturas de cor e normal maps. |
 | `MASK_SCALE` | `2` | Fator para máscaras, specular e mapas de luz. Ganham pouco e ocupam muita memória. |
 | `MAX_SIZE` | `2048` | Lado máximo de qualquer textura. |
-| `WORK` | `work/pbrify4x` | Pasta de trabalho. Troque quando trocar de modelo, para os resultados não se misturarem. |
+| `WORK` | `work/ultrasharp2x` | Pasta de trabalho. Troque quando trocar de modelo, para os resultados não se misturarem. |
 
 ---
 
@@ -157,10 +157,10 @@ Ficam no topo do `remaster.sh`:
 | Problema | Solução |
 |---|---|
 | **`GPU: NAO ENCONTRADA`** | O PyTorch não está vendo a GPU. Na Intel Arc, instale `intel-compute-runtime` e `level-zero-loader`. |
-| **O jogo fecha ao entrar em áreas novas ou depois de muito tempo** | O Dead Space 2 é um programa de 32 bits e pode ficar sem memória. Diminua `SCALE` para `2` ou `MAX_SIZE` para `1024` e rode o `./remaster.sh` de novo, ou coloque `Pool=default` no `DS2TexInject.ini`. |
-| **Alguma textura ficou estranha** | Aperte **F10** para confirmar. Rode `./remaster.sh preview`, abra a página que ele mostra, ache a textura e coloque o hash dela em `work/pbrify4x/rejected.txt`. A próxima rodada deixa ela de fora. |
+| **O jogo fecha ao entrar em áreas novas ou depois de muito tempo** | O Dead Space 2 é um programa de 32 bits e pode ficar sem memória. Diminua `MAX_SIZE` para `1024` e rode o `./remaster.sh` de novo, ou coloque `Pool=default` no `DS2TexInject.ini`. |
+| **Alguma textura ficou estranha** | Aperte **F10** para confirmar. Rode `./remaster.sh preview`, abra a página que ele mostra, ache a textura e coloque o hash dela em `work/ultrasharp2x/rejected.txt`. A próxima rodada deixa ela de fora. |
 | **O jogo engasga ao entrar em áreas novas** | Confira se o DS2TexInject está atualizado e se o Pillow está instalado (`sudo pacman -S python-pillow`), depois rode `./remaster.sh on`. As texturas passam a ser carregadas já prontas. |
-| **Qualquer outra coisa** | Veja o `work/pbrify4x/remaster.log` e abra uma issue com ele. |
+| **Qualquer outra coisa** | Veja o `work/ultrasharp2x/remaster.log` e abra uma issue com ele. |
 
 <p align="center"><a href="https://github.com/sidnei-almeida/dead-space-2-ai-remaster/issues"><img alt="Precisa de ajuda Abrir issue" src="https://img.shields.io/badge/Precisa%20de%20ajuda-Abrir%20issue-ff5a3c?style=for-the-badge&labelColor=0d1a1f&logo=github&logoColor=white"></a></p>
 
@@ -188,6 +188,7 @@ o jogo (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        texturas origin
 | Normal map (DXT5nm: X no alpha, Y no verde) | Nunca passa por modelo de foto. É redimensionado, renormalizado, e os canais vermelho e azul, que não são usados, ficam como o jogo espera. |
 | Máscaras, specular, mapas de luz | Redimensionamento limpo. A IA criaria costuras entre os retalhos dos mapas de luz. |
 | Alpha | Aumentado separadamente. Em DXT1 volta a ser recorte de 1 bit (grades, folhagem). |
+| Suaves (brilhos, facho de luz, degradês) | Só redimensionamento limpo. Não há detalhe para recuperar, e os modelos de IA inventam textura nelas: anéis e rugas que aparecem no facho da lanterna. |
 | Pequenas ou de cor única | Puladas. Não há o que ganhar. |
 
 **Por que as texturas originais vêm do jogo rodando:** o DS2TexInject identifica cada textura pelo hash CRC32 dos bytes que o jogo envia ao Direct3D. Com o dump em tempo real, cada arquivo já sai com o nome certo. Tirar dos arquivos `.DAT` da EA exigiria descobrir o formato deles e ainda reproduzir exatamente o mesmo hash.
@@ -200,7 +201,7 @@ o jogo (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        texturas origin
 O `remaster.sh` chama o `ds2remaster.py`, que também pode rodar etapa por etapa:
 
 ```sh
-.venv/bin/python ds2remaster.py all --model models/4x-PBRify_UpscalerV4.pth --limit 20
+.venv/bin/python ds2remaster.py all --model models/4x-UltraSharp.pth --limit 20
 ```
 
 | Opção | Padrão | O que faz |
@@ -225,7 +226,8 @@ Etapas: `scan`, `upscale`, `encode`, `pack`, `preview`, `all`, `status`. O `prev
 
 ## Créditos
 
-- **[PBRify](https://github.com/Kim2091/PBRify_Remix)**, do Kim2091: o modelo padrão, treinado só com texturas CC0 do ambientCG.
+- **[4x-UltraSharp](https://openmodeldb.info/models/4x-UltraSharp)**, do Kim2091: o modelo padrão.
+- **[PBRify](https://github.com/Kim2091/PBRify_Remix)**, do Kim2091: testado como alternativa. Mais nítido no papel, mas no Dead Space 2 inventou textura em superfícies suaves, e os 4x a mais de memória não compensaram.
 - **[spandrel](https://github.com/chaiNNer-org/spandrel)**, da equipe do chaiNNer: carrega quase qualquer arquitetura de upscale.
 - **[OpenModelDB](https://openmodeldb.info)**: o catálogo de modelos da comunidade.
 - **[DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux)**: coleta as texturas originais e carrega as remasterizadas.
@@ -234,4 +236,4 @@ Etapas: `scan`, `upscale`, `encode`, `pack`, `preview`, `all`, `status`. O `prev
 
 ## Licença
 
-[MIT](LICENSE). Os modelos de IA não fazem parte deste projeto e têm as próprias licenças: o PBRify é CC0, mas outros modelos podem não permitir redistribuição, então confira antes de compartilhar pacotes feitos com eles. O Dead Space 2 e as texturas dele pertencem à Electronic Arts.
+[MIT](LICENSE). Os modelos de IA não fazem parte deste projeto e têm as próprias licenças: o 4x-UltraSharp é CC BY-NC-SA 4.0, então pacotes feitos com ele podem ser compartilhados com crédito, sob a mesma licença e nunca vendidos. Confira a licença de qualquer outro modelo antes de compartilhar pacotes feitos com ele. O Dead Space 2 e as texturas dele pertencem à Electronic Arts.
