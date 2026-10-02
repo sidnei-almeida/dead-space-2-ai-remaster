@@ -38,10 +38,46 @@ O Dead Space 2 é de 2011, e a maior parte das texturas dele tem entre 128 e 512
 | 1 | Instalar o **[DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux)**. É ele que coloca as texturas no jogo. |
 | 2 | Clonar este repositório e rodar **`./remaster.sh setup`**. |
 | 3 | Rodar **`./remaster.sh dump-on`** e **jogar** um pouco. O jogo entrega as texturas dele. |
-| 4 | Fechar o jogo e rodar **`./remaster.sh`**. Vá tomar um café. |
+| 4 | Fechar o jogo, rodar **`./remaster.sh`** e escolher **Remasterizar**. Vá tomar um café. |
 | 5 | **Jogar.** Aperte **F10** para comparar antes e depois. |
 
 Cada passo está explicado abaixo.
+
+---
+
+## O menu
+
+Não curte digitar comandos? É só rodar:
+
+```sh
+./remaster.sh
+```
+
+e um menu abre. Escolha com as setas e aperte Enter:
+
+```
+╭────────────────────────────────────────╮
+│  DS2 AI Texture Remaster               │
+│                                        │
+│  Jogo:              fechado            │
+│  Remaster no jogo:  ATIVO              │
+│  Coleta:            LIGADA             │
+│  Texturas novas:    917 esperando      │
+│  Rodada:            parada             │
+│  Modelo:            4x-UltraSharp, 2x  │
+╰────────────────────────────────────────╯
+O que voce quer fazer? (setas + Enter)
+> Remasterizar as texturas novas
+  Ver o progresso
+  Desligar a coleta de texturas
+  Desativar o remaster no jogo
+  Comparar original x IA (abre no navegador)
+  Instalar ou consertar o ambiente
+  Ajuda
+  Sair
+```
+
+O painel mostra a situação atual, e as opções de ligar e desligar mudam conforme o estado. Tudo o que está abaixo dá para fazer pelo menu. O `./remaster.sh --help` explica cada comando.
 
 ---
 
@@ -93,13 +129,13 @@ Quando terminar:
 
 ## Passo 4: Remasterizar
 
-Feche o jogo e rode:
+Feche o jogo, abra o menu (`./remaster.sh`) e escolha **Remasterizar as texturas novas**, ou rode direto:
 
 ```sh
-./remaster.sh
+./remaster.sh run
 ```
 
-Só isso. Ele lê o dump, roda a IA, gera os DDS, monta o pacote e instala no jogo. Pode deixar rodando sozinho:
+Só isso. Uma barra de progresso fica se atualizando na tela. Ele lê o dump, roda a IA, gera os DDS, monta o pacote e instala no jogo. Pode deixar rodando sozinho:
 
 - ⏱️ **A primeira rodada demora** (de 15 a 30 minutos numa Intel Arc B580). As próximas só processam as texturas novas do dump.
 - 🔁 **Pare quando quiser** com Ctrl+C. Rode de novo e ele continua de onde parou.
@@ -130,7 +166,8 @@ Abra o Dead Space 2 pelo Steam, normalmente.
 
 | Comando | O que faz |
 |---|---|
-| `./remaster.sh` | Processa as texturas novas e instala o resultado no jogo. |
+| `./remaster.sh` | Abre o menu. Sem terminal (em segundo plano, agendado), faz o mesmo que `run`. |
+| `./remaster.sh run` | Processa as texturas novas e instala o resultado no jogo. |
 | `./remaster.sh status` | Progresso, tempo restante e erros de uma rodada em andamento. |
 | `./remaster.sh preview` | Gera uma página com o original e a IA lado a lado, para achar e rejeitar resultados ruins. |
 | `./remaster.sh dump-on` / `dump-off` | Liga ou desliga a coleta de texturas enquanto você joga. |
@@ -157,7 +194,7 @@ Ficam no topo do `remaster.sh`:
 | Problema | Solução |
 |---|---|
 | **`GPU: NAO ENCONTRADA`** | O PyTorch não está vendo a GPU. Na Intel Arc, instale `intel-compute-runtime` e `level-zero-loader`. |
-| **O jogo fecha ao entrar em áreas novas ou depois de muito tempo** | O Dead Space 2 é um programa de 32 bits e pode ficar sem memória. Diminua `MAX_SIZE` para `1024` e rode o `./remaster.sh` de novo, ou coloque `Pool=default` no `DS2TexInject.ini`. |
+| **O jogo fecha ao entrar em áreas novas ou depois de muito tempo** | O Dead Space 2 é um programa de 32 bits e pode ficar sem memória. Diminua `MAX_SIZE` para `1024` e rode o `./remaster.sh run` de novo, ou coloque `Pool=default` no `DS2TexInject.ini`. |
 | **Alguma textura ficou estranha** | Aperte **F10** para confirmar. Rode `./remaster.sh preview`, abra a página que ele mostra, ache a textura e coloque o hash dela em `work/ultrasharp2x/rejected.txt`. A próxima rodada deixa ela de fora. |
 | **O jogo engasga ao entrar em áreas novas** | Confira se o DS2TexInject está atualizado e se o Pillow está instalado (`sudo pacman -S python-pillow`), depois rode `./remaster.sh on`. As texturas passam a ser carregadas já prontas. |
 | **Qualquer outra coisa** | Veja o `work/ultrasharp2x/remaster.log` e abra uma issue com ele. |
