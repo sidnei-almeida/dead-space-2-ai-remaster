@@ -56,28 +56,48 @@ Não curte digitar comandos? É só rodar:
 e um menu abre. Escolha com as setas e aperte Enter:
 
 ```
-╭────────────────────────────────────────╮
-│  DS2 AI Texture Remaster               │
-│                                        │
-│  Jogo:              fechado            │
-│  Remaster no jogo:  ATIVO              │
-│  Coleta:            LIGADA             │
-│  Texturas novas:    917 esperando      │
-│  Rodada:            parada             │
-│  Modelo:            4x-UltraSharp, 2x  │
-╰────────────────────────────────────────╯
-O que voce quer fazer? (setas + Enter)
-> Remasterizar as texturas novas
-  Ver o progresso
-  Desligar a coleta de texturas
-  Desativar o remaster no jogo
-  Comparar original x IA (abre no navegador)
-  Instalar ou consertar o ambiente
-  Ajuda
-  Sair
+  DEAD SPACE 2  AI TEXTURE REMASTER
+  ────────────────────────────────────────────────────
+
+  Jogo                 ○ fechado
+  Remaster no jogo     ● ativo (1.3G)
+  Coleta               ● LIGADA (o jogo salva cada textura nova)
+  Ultima rodada        as 22:17, levou 2 min
+
+  Texturas coletadas   5292
+  Ja remasterizadas    3458
+  Esperando            917 novas no dump
+  Modelo               4x-UltraSharp, 2x, ate 2048px
+
+  O que voce quer fazer? (setas + Enter, Esc sai)
+  ➜ ▶  Jogar Dead Space 2
+    ✦  Remasterizar as texturas novas (917 esperando)
+    ◉  Desligar a coleta de texturas (agora esta LIGADA)
+    ◐  Desativar o remaster no jogo (agora esta ATIVO)
+    ⇄  Comparar original x IA (abre no navegador)
+    ≡  Ver o log da ultima rodada
+    ⚙  Instalar ou consertar o ambiente
+    ?  Ajuda
+    ✕  Sair
 ```
 
-O painel mostra a situação atual, e as opções de ligar e desligar mudam conforme o estado. Tudo o que está abaixo dá para fazer pelo menu. O `./remaster.sh --help` explica cada comando.
+Durante a remasterização, um painel ao vivo mostra cada etapa, uma barra de progresso, o tempo restante e quantas texturas de cada tipo já foram feitas:
+
+```
+  ✔  Ler as texturas coletadas
+  ⠹  Remasterizar com IA (4x-UltraSharp)
+  ·  Gerar DDS com mipmaps
+  ·  Montar o pacote
+  ·  Instalar no jogo
+
+  ██████████████░░░░░░░░░░░░░░░░░░░░   43.2%   396 / 917 texturas
+  decorrido 1m12s   faltam ~1m35s   erros 0
+  cor 201   mascaras 160   normal maps 35
+
+  Ctrl+C cancela (o que ja foi feito fica salvo)
+```
+
+O painel mostra a situação atual com cores, as opções de ligar e desligar dizem o que vão fazer, e **▶ Jogar** abre o jogo pelo Steam. Tudo o que está abaixo dá para fazer pelo menu. O `./remaster.sh --help` explica cada comando.
 
 ---
 

@@ -27,7 +27,8 @@ MAX_RESTARTS=5
 LIMIT="${LIMIT:-}"  # so para testes: processa no maximo N texturas
 
 set -u -o pipefail
-cd "$(dirname "$(readlink -f "$0")")" || exit 1
+SELF=$(readlink -f "$0")
+cd "$(dirname "$SELF")" || exit 1
 PY=.venv/bin/python
 TEXMOD="$GAME/texmod"
 INI="$GAME/DS2TexInject.ini"
@@ -183,6 +184,16 @@ cmd_off() {
 
 # ---------------------------------------------------------------- menu interativo
 
+STEAM_APPID=47780
+
+# cores (so quando ha terminal)
+if [ -t 1 ]; then
+    C_ACC=$'\e[38;5;45m'; C_OK=$'\e[38;5;84m'; C_WARN=$'\e[38;5;214m'; C_BAD=$'\e[38;5;203m'
+    C_DIM=$'\e[38;5;244m'; C_B=$'\e[1m'; C_0=$'\e[0m'
+else
+    C_ACC=''; C_OK=''; C_WARN=''; C_BAD=''; C_DIM=''; C_B=''; C_0=''
+fi
+
 dump_is_on() { grep -q '^DumpTextures=1' "$INI" 2>/dev/null; }
 pack_is_on() { [ -f "$TEXMOD/$PACK" ]; }
 run_active() { [ -f "$WORK/.lock" ] && ! flock -n "$WORK/.lock" true; }
@@ -198,70 +209,194 @@ print(sum(1 for h in files if h not in known))
 PY
 }
 
-menu_header() {
-    local game dump pack new run
-    game_running && game="ABERTO (feche antes de processar)" || game="fechado"
-    pack_is_on && pack="ATIVO" || pack="desativado"
-    dump_is_on && dump="LIGADA" || dump="desligada"
-    run_active && run="RODANDO" || run="parada"
-    new=$(count_new)
-    local txt="DS2 AI Texture Remaster
+count_files() { [ -d "$1" ] && find "$1" -maxdepth 1 -type f -name "$2" | wc -l || echo 0; }
 
-Jogo:              $game
-Remaster no jogo:  $pack
-Coleta:            $dump
-Texturas novas:    $new esperando
-Rodada:            $run
-Modelo:            $(basename "$MODEL" .pth), ${SCALE}x"
+last_run() {  # "[22:17:31] ===== pronto em 2 min. Pode abrir o jogo. =====" -> "as 22:17, levou 2 min"
+    local l
+    l=$(grep -h "pronto em" "$LOG" 2>/dev/null | tail -1)
+    if [ -n "$l" ]; then echo "$l" | sed -E 's/^\[([0-9]{2}:[0-9]{2}):[0-9]{2}\].*pronto em ([^.]*)\..*/as \1, levou \2/'
+    else echo "nenhuma ainda"; fi
+}
+
+line() { printf '  %-20s %s\n' "$1" "$2"; }
+
+menu_header() {
+    local new dump_n done_n pack_sz
+    NEW_COUNT=$(count_new)
+    dump_n=$(count_files "$TEXMOD/_dump" '*.dds')
+    done_n=$(count_files "$WORK/up" '*.png')
+    pack_sz=$(du -h "$TEXMOD/$PACK" 2>/dev/null | cut -f1)
+    clear
+    printf '\n  %s%sDEAD SPACE 2%s  %sAI TEXTURE REMASTER%s\n' "$C_B" "$C_ACC" "$C_0" "$C_ACC" "$C_0"
+    printf '  %s%s%s\n\n' "$C_DIM" "────────────────────────────────────────────────────" "$C_0"
+    if game_running; then line "Jogo" "${C_BAD}● aberto${C_0} ${C_DIM}(feche antes de remasterizar)${C_0}"
+    else line "Jogo" "${C_OK}○ fechado${C_0}"; fi
+    if pack_is_on; then line "Remaster no jogo" "${C_OK}● ativo${C_0} ${C_DIM}(${pack_sz:-?})${C_0}"
+    else line "Remaster no jogo" "${C_DIM}○ desativado${C_0}"; fi
+    if dump_is_on; then line "Coleta" "${C_WARN}● LIGADA${C_0} ${C_DIM}(o jogo salva cada textura nova)${C_0}"
+    else line "Coleta" "${C_DIM}○ desligada${C_0}"; fi
+    if run_active; then line "Rodada" "${C_ACC}● em andamento${C_0}"
+    else line "Ultima rodada" "${C_DIM}$(last_run)${C_0}"; fi
+    echo
+    line "Texturas coletadas" "$dump_n"
+    line "Ja remasterizadas" "$done_n"
+    if [ "$NEW_COUNT" = "0" ]; then line "Esperando" "${C_DIM}0${C_0}"
+    else line "Esperando" "${C_WARN}${NEW_COUNT}${C_0} ${C_DIM}novas no dump${C_0}"; fi
+    line "Modelo" "${C_DIM}$(basename "$MODEL" .pth), ${SCALE}x, ate ${MAX_SIZE}px${C_0}"
+    printf '\n'
+}
+
+pause() { echo; read -rp "  ${C_DIM}Enter para voltar ao menu...${C_0}" _ </dev/tty; }
+msg() { printf '\n  %s\n' "$*"; }
+
+ask() {  # ask "pergunta?" -> 0 se sim
+    if [ "$HAS_GUM" = 1 ]; then gum confirm --affirmative "Sim" --negative "Nao" --prompt.foreground 45 "$1"
+    else read -rp "$1 [s/N] " r </dev/tty; [[ "$r" =~ ^[sSyY] ]]; fi
+}
+
+with_spinner() {  # with_spinner "titulo" comando... (mostra o fim da saida depois)
+    local title=$1; shift
     if [ "$HAS_GUM" = 1 ]; then
-        gum style --border rounded --border-foreground 45 --padding "0 2" --margin "1 0" "$txt"
+        gum spin --spinner dot --spinner.foreground 45 --title " $title" --show-output -- "$@"
     else
-        printf '\n%s\n\n' "$txt"
+        echo "  $title"; "$@"
     fi
 }
 
-pause() {
+progress_bar() {  # progress_bar porcentagem largura
+    local pct=${1%.*} w=$2 fill
+    [ -z "$pct" ] && pct=0
+    fill=$(( pct * w / 100 ))
+    printf '%s%s%s%s%s' "$C_ACC" "$(printf '%*s' "$fill" '' | sed 's/ /█/g')" "$C_DIM" "$(printf '%*s' "$((w - fill))" '' | sed 's/ /░/g')" "$C_0"
+}
+
+# painel que se redesenha durante a rodada: etapas, barra, contagem por tipo
+draw_dashboard() {
+    local from=$1 state=$2 spin=$3 step=0 i j pct done total left el err cls
+    local names=("Ler as texturas coletadas" "Remasterizar com IA ($(basename "$MODEL" .pth))" "Gerar DDS com mipmaps" "Montar o pacote" "Instalar no jogo")
+    local newlog
+    newlog=$(tail -n +"$((from + 1))" "$LOG" 2>/dev/null)
+    for i in 1 2 3 4 5; do grep -q "\] $i/5 " <<<"$newlog" && step=$i; done
+    printf '\e[H\e[J'
+    printf '\n  %s%sDEAD SPACE 2%s  %sAI TEXTURE REMASTER%s   %s%s%s\n' "$C_B" "$C_ACC" "$C_0" "$C_ACC" "$C_0" "$C_DIM" "$state" "$C_0"
+    printf '  %s%s%s\n\n' "$C_DIM" "────────────────────────────────────────────────────" "$C_0"
+    for i in 1 2 3 4 5; do
+        if [ "$i" -lt "$step" ] || [ "$state" = "concluida" ]; then printf '  %s✔%s  %s\n' "$C_OK" "$C_0" "${names[$((i-1))]}"
+        elif [ "$i" -eq "$step" ]; then printf '  %s%s%s  %s%s%s\n' "$C_ACC" "$spin" "$C_0" "$C_B" "${names[$((i-1))]}" "$C_0"
+        else printf '  %s·  %s%s\n' "$C_DIM" "${names[$((i-1))]}" "$C_0"; fi
+    done
     echo
-    read -rp "Enter para voltar ao menu..." _ </dev/tty
+    j="$WORK/status.json"
+    if [ -f "$j" ] && [ "$(stat -c %Y "$j")" -ge "$DASH_START" ]; then
+        pct=$(sed -n 's/.*"porcentagem": \([0-9.]*\).*/\1/p' "$j"); done=$(sed -n 's/.*"feitas": \([0-9]*\).*/\1/p' "$j")
+        total=$(sed -n 's/.*"total": \([0-9]*\).*/\1/p' "$j"); left=$(sed -n 's/.*"faltam": "\([^"]*\)".*/\1/p' "$j")
+        el=$(sed -n 's/.*"decorrido": "\([^"]*\)".*/\1/p' "$j"); err=$(sed -n 's/.*"erros": \([0-9]*\).*/\1/p' "$j")
+        cls=$(tr -d '\n ' < "$j" | sed -n 's/.*"por_classe":{\([^}]*\)}.*/\1/p' | sed 's/"diffuse":/cor /; s/"mask":/mascaras /; s/"normal_ag":/normal maps /; s/"normal":/normal RGB /; s/"smooth":/suaves /; s/"//g; s/,/   /g')
+        printf '  %s  %s%5s%%%s   %s / %s texturas\n' "$(progress_bar "$pct" 34)" "$C_B" "$pct" "$C_0" "$done" "$total"
+        printf '  %sdecorrido %s   faltam ~%s   erros %s%s\n' "$C_DIM" "$el" "$left" "${err:-0}" "$C_0"
+        [ -n "$cls" ] && printf '  %s%s%s\n' "$C_DIM" "$cls" "$C_0"
+    elif [ "$step" -le 2 ]; then
+        printf '  %spreparando...%s\n' "$C_DIM" "$C_0"
+    fi
+    echo
+    grep -E "ERRO|sem progresso|tentativa" <<<"$newlog" | tail -3 | sed "s/^/  ${C_BAD}/; s/$/${C_0}/"
+    [ "$state" = "em andamento" ] && printf '\n  %sCtrl+C cancela (o que ja foi feito fica salvo)%s\n' "$C_DIM" "$C_0"
+}
+
+run_dashboard() {
+    local from pid rc frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) k=0 cancelled=0
+    if game_running; then msg "${C_BAD}O jogo esta aberto.${C_0} Feche o Dead Space 2 antes de remasterizar."; return; fi
+    if run_active; then msg "${C_WARN}Ja tem uma rodada em andamento.${C_0} Veja em 'Ver o progresso'."; return; fi
+    if [ "$NEW_COUNT" = "0" ]; then
+        ask "Nao ha texturas novas no dump. Rodar mesmo assim (refaz o pacote e o cache)?" || return
+    fi
+    from=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+    DASH_START=$(date +%s)
+    set -m
+    ( cmd_run ) >/dev/null 2>&1 &
+    pid=$!
+    set +m
+    trap 'cancelled=1; kill -TERM -- -$pid 2>/dev/null' INT
+    tput civis 2>/dev/null
+    while kill -0 "$pid" 2>/dev/null; do
+        draw_dashboard "$from" "em andamento" "${frames[$((k % 10))]}"
+        k=$((k + 1)); sleep 0.5
+    done
+    wait "$pid"; rc=$?
+    trap - INT
+    tput cnorm 2>/dev/null
+    if [ "$cancelled" = 1 ]; then
+        draw_dashboard "$from" "cancelada" "■"
+        msg "${C_WARN}Rodada cancelada.${C_0} O que ja foi feito fica salvo; da proxima vez continua de onde parou."
+    elif [ "$rc" = 0 ]; then
+        draw_dashboard "$from" "concluida" "✔"
+        msg "${C_OK}${C_B}Pronto!${C_0} $(grep -h "pronto em" "$LOG" | tail -1 | sed 's/.*pronto em/Terminou em/; s/ =====//')"
+    else
+        draw_dashboard "$from" "com erro" "✖"
+        msg "${C_BAD}A rodada parou com erro.${C_0} Detalhes em $LOG"
+    fi
+}
+
+play_game() {
+    if run_active; then
+        ask "Tem uma rodada em andamento, e abrir o jogo vai interrompe-la. Abrir mesmo assim?" || return
+    fi
+    if game_running; then msg "O jogo ja esta aberto."; return; fi
+    msg "${C_ACC}Abrindo o Dead Space 2 pelo Steam...${C_0}"
+    dump_is_on && msg "${C_DIM}A coleta esta ligada: as texturas novas vao ser salvas enquanto voce joga.${C_0}"
+    (xdg-open "steam://rungameid/$STEAM_APPID" >/dev/null 2>&1 || steam "steam://rungameid/$STEAM_APPID" >/dev/null 2>&1) &
 }
 
 open_preview() {
-    cmd_preview
-    command -v xdg-open >/dev/null && xdg-open "$(readlink -f "$WORK/preview.html")" >/dev/null 2>&1 &
+    with_spinner "Gerando a comparacao original x IA..." "$SELF" preview
+    command -v xdg-open >/dev/null && (xdg-open "$(readlink -f "$WORK/preview.html")" >/dev/null 2>&1 &)
 }
 
 cmd_menu() {
     command -v gum >/dev/null && HAS_GUM=1 || HAS_GUM=0
     while :; do
-        clear
         menu_header
-        local o_run="Remasterizar as texturas novas"
-        local o_status="Ver o progresso"
+        local o_play="▶  Jogar Dead Space 2"
+        local o_run="✦  Remasterizar as texturas novas"
+        [ "$NEW_COUNT" != "0" ] && [ "$NEW_COUNT" != "?" ] && o_run="✦  Remasterizar as texturas novas ($NEW_COUNT esperando)"
         local o_dump o_pack
-        dump_is_on && o_dump="Desligar a coleta de texturas" || o_dump="Ligar a coleta de texturas (depois jogue)"
-        pack_is_on && o_pack="Desativar o remaster no jogo" || o_pack="Ativar o remaster no jogo"
-        local o_prev="Comparar original x IA (abre no navegador)"
-        local o_setup="Instalar ou consertar o ambiente"
-        local o_help="Ajuda"
-        local o_quit="Sair"
-        local opts=("$o_run" "$o_status" "$o_dump" "$o_pack" "$o_prev" "$o_setup" "$o_help" "$o_quit") choice
+        if dump_is_on; then o_dump="◉  Desligar a coleta de texturas (agora esta LIGADA)"
+        else o_dump="○  Ligar a coleta de texturas (agora esta desligada)"; fi
+        if pack_is_on; then o_pack="◐  Desativar o remaster no jogo (agora esta ATIVO)"
+        else o_pack="◑  Ativar o remaster no jogo (agora esta desativado)"; fi
+        local o_prev="⇄  Comparar original x IA (abre no navegador)"
+        local o_log="≡  Ver o log da ultima rodada"
+        local o_setup="⚙  Instalar ou consertar o ambiente"
+        local o_help="?  Ajuda"
+        local o_quit="✕  Sair"
+        local opts=("$o_play" "$o_run" "$o_dump" "$o_pack" "$o_prev" "$o_log" "$o_setup" "$o_help" "$o_quit") choice
         if [ "$HAS_GUM" = 1 ]; then
-            choice=$(gum choose --header "O que voce quer fazer? (setas + Enter)" --cursor "> " "${opts[@]}") || break
+            choice=$(gum choose --header "  O que voce quer fazer? (setas + Enter, Esc sai)" --cursor "  ➜ " \
+                --header.foreground 244 --cursor.foreground 45 --selected.foreground 45 "${opts[@]}") || break
         else
             PS3="Escolha um numero: "
             select choice in "${opts[@]}"; do [ -n "$choice" ] && break; done </dev/tty
         fi
         case "$choice" in
-            "$o_run") ( cmd_run ); pause ;;
-            "$o_status") cmd_status; pause ;;
-            "$o_dump") ( if dump_is_on; then set_dump 0; say "coleta DESLIGADA"; else set_dump 1; say "coleta LIGADA: jogue normalmente, as texturas novas vao para texmod/_dump"; fi ); pause ;;
-            "$o_pack") if pack_is_on; then ( cmd_off ); else ( cmd_on ); fi; pause ;;
-            "$o_prev") ( open_preview ); pause ;;
+            "$o_play") play_game; pause ;;
+            "$o_run") run_dashboard; pause ;;
+            "$o_dump")
+                if dump_is_on; then ( set_dump 0 ) && msg "${C_OK}Coleta desligada.${C_0} O jogo nao salva mais texturas novas."
+                else ( set_dump 1 ) && msg "${C_WARN}Coleta ligada.${C_0} Abra o jogo e jogue: cada textura nova vai para o dump."; fi
+                pause ;;
+            "$o_pack")
+                if game_running; then msg "${C_BAD}Feche o jogo antes.${C_0} O cache de texturas nao pode mudar com o jogo aberto."
+                elif pack_is_on; then ask "Desativar o remaster? O jogo fica so com os seus pacotes .tpf." && with_spinner "Desativando e refazendo o cache do jogo..." "$SELF" off
+                else with_spinner "Ativando e refazendo o cache do jogo..." "$SELF" on; fi
+                pause ;;
+            "$o_prev") open_preview; pause ;;
+            "$o_log") clear; grep -Ev '^\s+\[' "$LOG" 2>/dev/null | tail -40 || echo "sem log ainda"; pause ;;
             "$o_setup") ( cmd_setup ); pause ;;
-            "$o_help") cmd_help | ${PAGER:-less -R}; ;;
+            "$o_help") cmd_help | ${PAGER:-less -R} ;;
             *) break ;;
         esac
     done
+    clear
 }
 
 cmd_help() {
