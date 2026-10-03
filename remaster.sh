@@ -15,13 +15,20 @@
 # As configuracoes ficam logo abaixo. Para mudar, edite este arquivo.
 
 GAME="${GAME:-$HOME/.local/share/Steam/steamapps/common/Dead Space 2}"
-MODEL="${MODEL:-models/4x-UltraSharp.pth}"
-MODEL_URL="https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
+# Modelo principal: PBRify_UpscalerV4 (DAT2, feito para texturas de jogos antigos: tira a compressao
+# DXT e recupera detalhe de verdade). Mais pesado que um ESRGAN, mas vale cada minuto.
+MODEL="${MODEL:-models/4x-PBRify_UpscalerV4.pth}"
+MODEL_URL="https://github.com/Kim2091/Kim2091-Models/releases/download/4x-PBRify_UpscalerV4/4x-PBRify_UpscalerV4.pth"
+# Degrades puros (facho da lanterna, brilhos, particulas) nao passam por IA nenhuma: so Lanczos.
+# Opcional: um segundo modelo mais conservador para texturas de pouco detalhe, ex.:
+#   SOFT_MODEL=models/4x-UltraSharp.pth ./remaster.sh run
+SOFT_MODEL="${SOFT_MODEL:-}"
+SOFT_MODEL_URL="https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
 SCALE="${SCALE:-2}"            # texturas de cor e normal maps
 MASK_SCALE="${MASK_SCALE:-2}"  # mascaras, specular e mapas de luz (ganham pouco e ocupam muita memoria)
 MAX_SIZE="${MAX_SIZE:-2048}"   # lado maximo de qualquer textura
-WORK="${WORK:-work/ultrasharp${SCALE}x}"
-# Rodada experimental em 4x (o 2x fica guardado em work/ultrasharp2x; o pacote no jogo e substituido):
+WORK="${WORK:-work/pbrify${SCALE}x}"
+# Rodada experimental em 4x (o 2x fica guardado em work/pbrify2x; o pacote no jogo e substituido):
 #   SCALE=4 MAX_SIZE=4096 ./remaster.sh run
 # Para voltar ao 2x depois: ./remaster.sh run (reaproveita o que ja foi feito, so refaz DDS e pacote)
 PACK="zz_ai_remaster.zip"
@@ -38,6 +45,8 @@ INI="$GAME/DS2TexInject.ini"
 LOG="$WORK/remaster.log"
 OPTS=(--game "$GAME" --work "$WORK" --scale "$SCALE" --mask-scale "$MASK_SCALE" --max-size "$MAX_SIZE" --pack-name "$PACK")
 [ -n "$LIMIT" ] && OPTS+=(--limit "$LIMIT")
+MODEL_OPTS=(--model "$MODEL")
+[ -n "$SOFT_MODEL" ] && MODEL_OPTS+=(--soft-model "$SOFT_MODEL")
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
 die() { say "ERRO: $*"; notify "Remaster parou com erro" "$*"; exit 1; }
@@ -75,6 +84,10 @@ cmd_setup() {
         say "baixando o modelo $(basename "$MODEL")"
         curl -fL --progress-bar -o "$MODEL.part" "$MODEL_URL" && mv "$MODEL.part" "$MODEL" || die "falha ao baixar o modelo"
     fi
+    if [ -n "$SOFT_MODEL" ] && [ ! -f "$SOFT_MODEL" ]; then
+        say "baixando o modelo $(basename "$SOFT_MODEL")"
+        curl -fL --progress-bar -o "$SOFT_MODEL.part" "$SOFT_MODEL_URL" && mv "$SOFT_MODEL.part" "$SOFT_MODEL" || die "falha ao baixar o modelo"
+    fi
     "$PY" -c "import torch; print('GPU:', torch.xpu.get_device_name(0) if torch.xpu.is_available() else 'NAO ENCONTRADA (vai usar a CPU, bem mais lento)')"
 }
 
@@ -95,7 +108,7 @@ show_progress() {
 upscale_with_watchdog() {
     local tries=0 pid last now
     while :; do
-        "$PY" ds2remaster.py upscale "${OPTS[@]}" --model "$MODEL" >> "$LOG" 2>&1 &
+        "$PY" ds2remaster.py upscale "${OPTS[@]}" "${MODEL_OPTS[@]}" >> "$LOG" 2>&1 &
         pid=$!
         while kill -0 "$pid" 2>/dev/null; do
             sleep 2
@@ -122,6 +135,7 @@ upscale_with_watchdog() {
 cmd_run() {
     need_game_closed
     [ -x "$PY" ] && [ -f "$MODEL" ] || die "ambiente nao instalado. Rode primeiro: ./remaster.sh setup"
+    [ -z "$SOFT_MODEL" ] || [ -f "$SOFT_MODEL" ] || die "modelo $SOFT_MODEL nao encontrado. Rode: ./remaster.sh setup"
     mkdir -p "$WORK"
     exec 9> "$WORK/.lock"
     flock -n 9 || die "ja tem uma rodada em andamento (./remaster.sh status)"
@@ -150,7 +164,7 @@ cmd_run() {
 
 cmd_status() {
     if [ -f "$WORK/status.json" ]; then
-        "$PY" ds2remaster.py status --work "$WORK" 2>/dev/null | tail -4
+        "$PY" ds2remaster.py status --work "$WORK" 2>/dev/null | tail -5
     else
         echo "nenhuma rodada registrada ainda"
     fi
@@ -201,14 +215,21 @@ dump_is_on() { grep -q '^DumpTextures=1' "$INI" 2>/dev/null; }
 pack_is_on() { [ -f "$TEXMOD/$PACK" ]; }
 run_active() { [ -f "$WORK/.lock" ] && ! flock -n "$WORK/.lock" true; }
 
-# texturas no dump que ainda nao foram analisadas (estimativa rapida do que a proxima rodada vai fazer)
+# texturas que a proxima rodada vai processar: as do dump ainda nao analisadas + as analisadas e na fila
+# (nao puladas, nao cobertas por .tpf, nao rejeitadas) que ainda nao tem resultado em work/up
 count_new() {
-    "$PY" - "$TEXMOD/_dump" "$WORK/manifest.json" 2>/dev/null <<'PY' || echo "?"
+    "$PY" - "$TEXMOD/_dump" "$WORK" 2>/dev/null <<'PY' || echo "?"
 import json, os, sys
-dump, man = sys.argv[1], sys.argv[2]
-known = set(json.load(open(man))) if os.path.exists(man) else set()
+dump, work = sys.argv[1], sys.argv[2]
+manp = os.path.join(work, 'manifest.json')
+man = json.load(open(manp)) if os.path.exists(manp) else {}
+rej = os.path.join(work, 'rejected.txt')
+rejected = {l.strip() for l in open(rej)} if os.path.exists(rej) else set()
 files = [f[:10].upper().replace('0X', '0x') for f in os.listdir(dump) if f.lower().endswith('.dds')] if os.path.isdir(dump) else []
-print(sum(1 for h in files if h not in known))
+n = sum(1 for h in files if h not in man)
+n += sum(1 for h, e in man.items() if e['class'] != 'skip' and not e['covered'] and h not in rejected
+         and not os.path.exists(os.path.join(work, 'up', h + '.png')))
+print(n)
 PY
 }
 
@@ -233,6 +254,10 @@ last_run() {  # "[22:17:31] ===== pronto em 2 min. Pode abrir o jogo. =====" -> 
 }
 
 line() { printf '  %-20s %s\n' "$1" "$2"; }
+model_label() {  # "PBRify_UpscalerV4 + UltraSharp nas lisas"
+    local m; m=$(basename "$MODEL" .pth); m=${m#4x-}
+    if [ -n "$SOFT_MODEL" ]; then printf '%s + %s nas lisas' "$m" "$(basename "${SOFT_MODEL#*4x-}" .pth)"; else printf '%s' "$m"; fi
+}
 
 menu_header() {
     local new dump_n done_n pack_sz skip_n cov_n
@@ -258,8 +283,8 @@ menu_header() {
     line "Puladas" "${C_DIM}${skip_n}  (pequenas demais ou de cor unica)${C_0}"
     line "Dos seus mods" "${C_DIM}${cov_n}  (seus .tpf ja cuidam delas)${C_0}"
     if [ "$NEW_COUNT" = "0" ]; then line "Esperando" "${C_DIM}0${C_0}"
-    else line "Esperando" "${C_WARN}${NEW_COUNT}${C_0} ${C_DIM}novas, ainda nao processadas${C_0}"; fi
-    line "Modelo" "${C_DIM}$(basename "$MODEL" .pth), ${SCALE}x, ate ${MAX_SIZE}px${C_0}"
+    else line "Esperando" "${C_WARN}${NEW_COUNT}${C_0} ${C_DIM}na fila, ainda nao processadas${C_0}"; fi
+    line "Modelo" "${C_DIM}$(model_label), ${SCALE}x, ate ${MAX_SIZE}px${C_0}"
     printf '\n'
 }
 
@@ -290,7 +315,7 @@ progress_bar() {  # progress_bar porcentagem largura
 # painel que se redesenha durante a rodada: etapas, barra, contagem por tipo
 draw_dashboard() {
     local from=$1 state=$2 spin=$3 step=0 i j pct done total left el err cls
-    local names=("Ler as texturas coletadas" "Remasterizar com IA ($(basename "$MODEL" .pth))" "Gerar DDS com mipmaps" "Montar o pacote" "Instalar no jogo")
+    local names=("Ler as texturas coletadas" "Remasterizar com IA ($(model_label))" "Gerar DDS com mipmaps" "Montar o pacote" "Instalar no jogo")
     local newlog
     newlog=$(tail -n +"$((from + 1))" "$LOG" 2>/dev/null)
     for i in 1 2 3 4 5; do grep -q "\] $i/5 " <<<"$newlog" && step=$i; done
@@ -457,6 +482,7 @@ ${b}FLUXO TIPICO${n} (tudo isso tambem esta no menu)
 
 ${b}CONFIGURACAO ATUAL${n} (edite no topo deste arquivo)
   modelo        $MODEL
+  nas lisas     ${SOFT_MODEL:-(o mesmo)}   opcional, para texturas de pouco detalhe; degrades puros nao passam por IA
   escala        ${SCALE}x cor e normal maps, ${MASK_SCALE}x mascaras e mapas de luz
   lado maximo   ${MAX_SIZE}px
   trabalho      $WORK

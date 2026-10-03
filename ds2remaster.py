@@ -15,7 +15,7 @@ Etapas (cada uma pode rodar sozinha; o que ja foi feito e pulado):
   all       scan + upscale + encode + pack + preview
 
 Uso:  python3 ds2remaster.py all --game "~/.local/share/Steam/steamapps/common/Dead Space 2" \\
-          --model models/4x-UltraSharp.pth --limit 20
+          --model models/4x-PBRify_UpscalerV4.pth --limit 20
 """
 import argparse, html, io, json, os, struct, sys, time, zipfile
 
@@ -27,6 +27,13 @@ DEFAULT_GAME = os.path.expanduser('~/.local/share/Steam/steamapps/common/Dead Sp
 PACK_NAME = 'zz_ai_remaster.zip'  # "zz_": fica por ultimo, pacotes feitos a mao tem prioridade
 CLASSES = ('diffuse', 'normal', 'normal_ag', 'mask', 'smooth')
 SMOOTH_DETAIL = 0.008  # abaixo disso a textura e um degrade (brilho, facho de luz, mapa de dados)
+# trava local anti-invencao: regioes da textura que sao degrade puro (facho de luz, brilho, fundo chapado
+# de uma particula ou vidro) ficam com Lanczos; qualquer regiao com detalhe de verdade, mesmo pouco
+# (caixa, parede lisa, plastico), recebe a IA inteira. Entre os dois, uma rampa curta.
+DETAIL_LO, DETAIL_HI = 0.002, 0.006
+# opcional (--soft-model): texturas com detalhe total abaixo de SOFT_BELOW vao para um segundo modelo
+# mais conservador. Desligado por padrao: o PBRify se sai bem mesmo em superficies lisas.
+SOFT_BELOW = 0.016
 
 
 # ---------------------------------------------------------------- utilidades
@@ -82,43 +89,55 @@ def covered_hashes(game):
 # ---------------------------------------------------------------- classificacao
 
 def classify(rgba):
-    """Heuristica simples. Retorna (classe, tem_alpha)."""
+    """Heuristica simples. Retorna (classe, tem_alpha, detalhe_fino)."""
     small = rgba[::max(1, rgba.shape[0] // 128), ::max(1, rgba.shape[1] // 128)]
     r, g, b, a = (small[..., i] for i in range(4))
     has_alpha = float(a.min()) < 0.98
     if small.reshape(-1, 4).std(0).max() < 0.01:
-        return 'flat', False  # cor unica: nao ha o que melhorar
+        return 'flat', False, 0.0  # cor unica: nao ha o que melhorar
+    detail = fine_detail(rgba[..., :3])
 
     # DXT5nm: X no alpha, Y no verde, R/B quase constantes
     if (r.std() < 0.03 and b.std() < 0.03 and abs(a.mean() - 0.5) < 0.12
             and abs(g.mean() - 0.5) < 0.12 and a.std() > 0.02):
-        return 'normal_ag', False
+        return 'normal_ag', False, detail
 
     # normal map RGB: azulado, R/G centrados e vetores ~unitarios
     x, y, z = r * 2 - 1, g * 2 - 1, b * 2 - 1
     length = np.sqrt(x * x + y * y + z * z)
     if (b.mean() > 0.7 and abs(r.mean() - 0.5) < 0.1 and abs(g.mean() - 0.5) < 0.1
             and abs(length.mean() - 1) < 0.15 and (z > 0).mean() > 0.97):
-        return 'normal', has_alpha
+        return 'normal', has_alpha, detail
+
+    # brilhos, fachos de luz e degrades (coloridos ou em cinza): nao ha detalhe para recuperar, e a IA
+    # inventa textura (aneis e rugas que aparecem na luz da lanterna). Vao so com redimensionamento.
+    if detail < SMOOTH_DETAIL:
+        return 'smooth', has_alpha, detail
 
     # mascara/specular: tons de cinza
     if np.abs(r - g).mean() < 0.01 and np.abs(g - b).mean() < 0.01:
-        return 'mask', has_alpha
+        return 'mask', has_alpha, detail
 
-    # brilhos, fachos de luz e degrades: nao ha detalhe para recuperar, e a IA inventa textura
-    # (aneis e rugas que aparecem na luz da lanterna). Vao so com redimensionamento.
-    if fine_detail(rgba[..., :3]) < SMOOTH_DETAIL:
-        return 'smooth', has_alpha
-
-    return 'diffuse', has_alpha
+    return 'diffuse', has_alpha, detail
 
 
-def fine_detail(rgb):
-    """Quanto detalhe fino a textura tem (media de |imagem - versao borrada|), medido em ate 256px."""
+def detail_image(rgb):
+    """|imagem - versao borrada| por pixel, medido em ate 256px: o que e detalhe fino de verdade."""
     f = max(1, max(rgb.shape[:2]) // 256)
     if f > 1:
         rgb = resize(rgb, max(1, rgb.shape[1] // f), max(1, rgb.shape[0] // f))
-    return float(np.abs(rgb - lowpass(rgb, 4)).mean())
+    return np.abs(rgb - lowpass(rgb, 4)).mean(-1, keepdims=True)
+
+
+def fine_detail(rgb):
+    """Quanto detalhe fino a textura tem, no total (media de detail_image)."""
+    return float(detail_image(rgb).mean())
+
+
+def detail_map(rgb, out_w, out_h):
+    """Detalhe fino local do original, suavizado numa vizinhanca e no tamanho da saida (HxW)."""
+    d = lowpass(detail_image(rgb), 8)
+    return resize(d, out_w, out_h, Image.BILINEAR)[..., 0]
 
 
 def cmd_scan(a):
@@ -147,7 +166,7 @@ def cmd_scan(a):
             e['reason'] = 'pequena'
         else:
             try:
-                e['class'], e['alpha'] = classify(load_rgba(src))
+                e['class'], e['alpha'], e['detail'] = classify(load_rgba(src))
                 if e['class'] == 'flat':
                     e['class'], e['reason'] = 'skip', 'cor unica'
             except Exception as ex:
@@ -178,8 +197,8 @@ def cmd_scan(a):
 class Upscaler:
     """Backend 'model' (spandrel + PyTorch: Intel XPU, CUDA ou CPU) ou 'lanczos' (sem IA)."""
 
-    def __init__(self, model_path, tile, cleanup_path=None, color_lock=True):
-        self.models, self.tile, self.color_lock = [], tile, color_lock
+    def __init__(self, model_path, tile, cleanup_path=None, color_lock=True, guard=(DETAIL_LO, DETAIL_HI)):
+        self.models, self.tile, self.color_lock, self.guard = [], tile, color_lock, guard
         if not model_path:
             self.device = None
             log('sem --model: usando Lanczos (sem IA), so para testar o pipeline')
@@ -199,13 +218,23 @@ class Upscaler:
         for p in (cleanup_path, model_path):
             if p:
                 m = ModelLoader().load_from_file(p).to(self.device).eval()
-                if self.device.type != 'cpu' and m.supports_half:
-                    m.model.half()
-                    m.half = True
-                else:
-                    m.half = False
+                m.run_dtype = self._best_dtype(m)
+                m.model.to(m.run_dtype)
                 self.models.append(m)
-                log('modelo: %s (%dx, %s) em %s' % (os.path.basename(p), m.scale, m.architecture.name, self.device))
+                log('modelo: %s (%dx, %s, %s) em %s' % (os.path.basename(p), m.scale, m.architecture.name,
+                                                        str(m.run_dtype).replace('torch.', ''), self.device))
+
+    def _best_dtype(self, m):
+        """fp16 quando o modelo aguenta; senao bf16 (DAT, HAT...), que e 2x mais leve que fp32
+        e visualmente identico (>50 dB)."""
+        torch = self.torch
+        if self.device.type == 'cpu':
+            return torch.float32
+        if m.supports_half:
+            return torch.float16
+        if m.supports_bfloat16 and (self.device.type != 'cuda' or torch.cuda.is_bf16_supported()):
+            return torch.bfloat16
+        return torch.float32
 
     @property
     def scale(self):
@@ -225,8 +254,11 @@ class Upscaler:
         s = self.scale
         x = x[pad * s:x.shape[0] - pad * s, pad * s:x.shape[1] - pad * s]
         x = resize(x, out_w, out_h)
+        ref = resize(img, out_w, out_h)
         if self.color_lock:
-            x = color_lock(resize(img, out_w, out_h), x)
+            x = color_lock(ref, x)
+        if self.guard:
+            x = detail_guard(img, ref, x, out_w, out_h, *self.guard)
         return x
 
     def _run(self, m, img):
@@ -235,7 +267,7 @@ class Upscaler:
         s, t, ov = m.scale, self.tile, 16
         out = np.zeros((h * s, w * s, 3), np.float32)
         weight = np.zeros((h * s, w * s, 1), np.float32)
-        dtype = torch.float16 if m.half else torch.float32
+        dtype = m.run_dtype
         with torch.inference_mode():
             for y0 in range(0, h, t - 2 * ov):
                 for x0 in range(0, w, t - 2 * ov):
@@ -264,6 +296,14 @@ def color_lock(ref, ai):
     """Mantem as cores/iluminacao de baixa frequencia do original; a IA so entra com o detalhe."""
     f = max(4, max(ai.shape[:2]) // 128)
     return np.clip(ai - lowpass(ai, f) + lowpass(ref, f), 0, 1)
+
+
+def detail_guard(img, ref, ai, out_w, out_h, lo, hi):
+    """Mistura IA e Lanczos conforme o detalhe fino local do original: abaixo de `lo` fica o Lanczos
+    (a IA so inventaria textura), acima de `hi` fica a IA inteira, no meio uma rampa suave."""
+    w = np.clip((detail_map(img, out_w, out_h) - lo) / max(hi - lo, 1e-6), 0, 1)
+    w = (w * w * (3 - 2 * w))[..., None]  # smoothstep
+    return ref + w * (ai - ref)
 
 
 def resize(img, w, h, method=Image.LANCZOS):
@@ -312,9 +352,10 @@ def process(up, e, src, a):
         n = renormalize(upscale_xy(a, rgba[..., 3], rgba[..., 1], ow, oh))
         rb = resize(np.stack([rgba[..., 0], rgba[..., 2]], -1), ow, oh)
         return np.stack([rb[..., 0], n[..., 1], rb[..., 1], n[..., 0]], -1)
-    elif cls == 'smooth' or (cls == 'mask' and not a.ai_masks):
+    elif cls == 'smooth' or (cls == 'mask' and a.no_ai_masks):
         rgb = resize(rgba[..., :3], ow, oh)
     else:
+        up = pick_model(up, e, a)
         rgb = up.rgb(rgba[..., :3], ow, oh)
     if e.get('alpha'):
         al = rgba[..., 3:4]
@@ -324,6 +365,14 @@ def process(up, e, src, a):
     else:
         alpha = np.ones((oh, ow, 1), np.float32)
     return np.concatenate([rgb, alpha], -1)
+
+
+def pick_model(up, e, a):
+    """Modelo principal, ou o conservador (--soft-model) quando a textura tem pouco detalhe no total."""
+    soft = getattr(a, 'soft', None)
+    if soft and e.get('detail', 1.0) < a.soft_below:
+        return soft
+    return up
 
 
 def todo(man, a):
@@ -366,17 +415,22 @@ def cmd_upscale(a):
     log('%d texturas na fila, %d ja feitas, %d para processar' % (len(jobs), len(jobs) - len(pending), len(pending)))
     if not pending:
         return
-    up = Upscaler(a.model, a.tile, a.cleanup, not a.no_color_lock)
+    guard = None if a.no_detail_guard else (a.detail_lo, a.detail_hi)
+    up = Upscaler(a.model, a.tile, a.cleanup, not a.no_color_lock, guard)
+    a.soft = Upscaler(a.soft_model, a.tile, a.cleanup, not a.no_color_lock, guard) if a.soft_model else None
     # normal map: a trava mantem a orientacao geral das superficies do original; o modelo so traz o relevo fino
-    a.nup = Upscaler(a.normal_model, a.tile, None, True) if a.normal_model else None
+    a.nup = Upscaler(a.normal_model, a.tile, None, True, guard) if a.normal_model else None
     t0, done, errors, total = time.time(), 0, 0, len(pending)
-    by_class = {}
+    by_class, by_model = {}, {}
     for i, (h, e) in enumerate(pending, 1):
         t1 = time.time()
         try:
             save_png(process(up, e, e['src'], a), os.path.join(outdir, h + '.png'))
             done += 1
             by_class[e['class']] = by_class.get(e['class'], 0) + 1
+            if e['class'] in ('diffuse', 'mask'):
+                mname = os.path.basename((a.soft_model if pick_model(up, e, a) is a.soft else a.model) or 'lanczos')
+                by_model[mname] = by_model.get(mname, 0) + 1
         except Exception as ex:
             errors += 1
             log('  ERRO %s: %s' % (h, ex))
@@ -388,7 +442,7 @@ def cmd_upscale(a):
         # a cada textura: o remaster.sh usa o horario deste arquivo para detectar GPU travada
         write_status(a, etapa='upscale', feitas=i, total=total, porcentagem=round(100.0 * i / total, 1),
                      erros=errors, decorrido=fmt_time(el), faltam=fmt_time(eta), atual=h, por_classe=by_class,
-                     modelo=os.path.basename(a.model) if a.model else 'lanczos')
+                     por_modelo=by_model, modelo=os.path.basename(a.model) if a.model else 'lanczos')
     log('%d texturas processadas em %s (%d erros)' % (done, fmt_time(time.time() - t0), errors))
 
 
@@ -401,6 +455,8 @@ def cmd_status(a):
     log('%s [%s%s] %s%%  %d/%d' % (st['etapa'], '#' * bar, '.' * (20 - bar), st['porcentagem'], st['feitas'], st['total']))
     log('decorrido %s | faltam ~%s | erros %d | modelo %s' % (st['decorrido'], st['faltam'], st['erros'], st['modelo']))
     log('por classe: ' + ', '.join('%s %d' % kv for kv in sorted(st['por_classe'].items())))
+    if st.get('por_modelo'):
+        log('por modelo: ' + ', '.join('%s %d' % kv for kv in sorted(st['por_modelo'].items())))
     log('ultima atualizacao %s (textura %s)' % (st['atualizado'], st['atual']))
 
 
@@ -524,9 +580,11 @@ def cmd_preview(a):
             Image.open(e['src']).convert('RGBA').save(orig)
         rows.append((h, e, os.path.relpath(orig, a.work), os.path.relpath(up, a.work)))
     cards = '\n'.join(
-        '<figure id="{h}"><figcaption><b>{h}</b> {c} {fmt} {w}x{hh}<label><input type=checkbox data-h="{h}"> rejeitar</label>'
+        '<figure id="{h}"><figcaption><b>{h}</b> {c} {fmt} {w}x{hh} <span class=dim>detalhe {d}</span>'
+        '<label><input type=checkbox data-h="{h}"> rejeitar</label>'
         '</figcaption><div class=pair><img loading=lazy src="{o}"><img loading=lazy src="{u}"></div></figure>'.format(
-            h=h, c=e['class'], fmt=e['fmt'], w=e['w'], hh=e['h'], o=html.escape(o), u=html.escape(u))
+            h=h, c=e['class'], fmt=e['fmt'], w=e['w'], hh=e['h'], d='%.3f' % e.get('detail', -1),
+            o=html.escape(o), u=html.escape(u))
         for h, e, o, u in rows)
     page = PREVIEW_HTML.replace('{{CARDS}}', cards).replace('{{N}}', str(len(rows)))
     dst = os.path.join(a.work, 'preview.html')
@@ -539,7 +597,7 @@ PREVIEW_HTML = """<!doctype html><meta charset=utf-8><title>DS2 AI Remaster</tit
 body{margin:0;background:#0d1214;color:#cfe;font:14px system-ui,sans-serif;padding:16px}
 h1{font-size:18px}figure{margin:0 0 24px}figcaption{margin-bottom:6px;display:flex;gap:12px;align-items:center}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:6px}.pair img{width:100%;image-rendering:auto;background:#222}
-textarea{width:100%;height:80px;background:#000;color:#cfe}
+textarea{width:100%;height:80px;background:#000;color:#cfe}.dim{color:#789}
 </style>
 <h1>{{N}} texturas: original (esquerda) x IA (direita)</h1>
 <p>Marque as ruins e copie a lista para <code>work/rejected.txt</code>.</p>
@@ -576,21 +634,29 @@ def main():
     ap.add_argument('--game', default=DEFAULT_GAME, help='pasta do jogo')
     ap.add_argument('--dump', help='pasta do dump (padrao: <jogo>/texmod/_dump)')
     ap.add_argument('--work', default=os.path.join(HERE, 'work'), help='pasta de trabalho')
-    ap.add_argument('--model', help='modelo de upscale (.pth/.safetensors, ex.: 4x-UltraSharp)')
+    ap.add_argument('--model', help='modelo de upscale (.pth/.safetensors, ex.: 4x-PBRify_UpscalerV4)')
+    ap.add_argument('--soft-model', help='modelo conservador para texturas de pouco detalhe (ex.: 4x-UltraSharp)')
+    ap.add_argument('--soft-below', type=float, default=SOFT_BELOW,
+                    help='texturas com detalhe total abaixo disto vao para o --soft-model (padrao %g)' % SOFT_BELOW)
     ap.add_argument('--normal-model', help='modelo para normal maps no formato RG0 (ex.: 4x-Normal-RG0-BC1)')
     ap.add_argument('--cleanup', help='modelo 1x opcional aplicado antes (remove artefatos DXT)')
     ap.add_argument('--scale', type=int, default=2, help='fator final (padrao 2)')
     ap.add_argument('--mask-scale', type=int, help='fator para mascaras/mapas de luz (padrao: igual a --scale)')
     ap.add_argument('--max-size', type=int, default=2048, help='lado maximo (padrao 2048)')
-    ap.add_argument('--min-size', type=int, default=64, help='ignora texturas menores que isso')
+    ap.add_argument('--min-size', type=int, default=32, help='ignora texturas menores que isso')
     ap.add_argument('--tile', type=int, default=544, help='tamanho do bloco na GPU')
     ap.add_argument('--only', nargs='+', choices=CLASSES, help='so estas classes')
     ap.add_argument('--recent', type=float, help='so texturas salvas nos ultimos N minutos do dump')
     ap.add_argument('--pack-name', default=PACK_NAME, help='nome do pacote (padrao %s)' % PACK_NAME)
     ap.add_argument('--limit', type=int, help='processa no maximo N texturas')
     ap.add_argument('--ai-alpha', action='store_true', help='usa o modelo tambem no canal alpha')
-    ap.add_argument('--ai-masks', action='store_true', help='usa o modelo tambem em mascaras/specular')
+    ap.add_argument('--no-ai-masks', action='store_true', help='mascaras/specular so com Lanczos (sem IA)')
     ap.add_argument('--no-color-lock', action='store_true', help='deixa a IA mudar as cores do original')
+    ap.add_argument('--detail-lo', type=float, default=DETAIL_LO,
+                    help='trava anti-invencao: abaixo deste detalhe local a IA nao entra (padrao %g)' % DETAIL_LO)
+    ap.add_argument('--detail-hi', type=float, default=DETAIL_HI,
+                    help='acima deste detalhe local a IA entra inteira (padrao %g)' % DETAIL_HI)
+    ap.add_argument('--no-detail-guard', action='store_true', help='desliga a trava (IA em toda a textura)')
     ap.add_argument('--force', action='store_true', help='refaz mesmo o que ja existe')
     a = ap.parse_args()
     a.game, a.work = os.path.abspath(os.path.expanduser(a.game)), os.path.abspath(a.work)
