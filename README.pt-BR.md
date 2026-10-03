@@ -119,11 +119,22 @@ cd dead-space-2-ai-remaster
 ./remaster.sh setup
 ```
 
-O `setup` cria um ambiente Python em `.venv`, instala o PyTorch e o [spandrel](https://github.com/chaiNNer-org/spandrel), baixa o modelo de IA e mostra qual GPU encontrou:
+O `setup` cria um ambiente Python em `.venv`, instala o PyTorch e o [spandrel](https://github.com/chaiNNer-org/spandrel), baixa os modelos de IA que faltam, encontra o jogo e mostra qual GPU encontrou:
 
 ```
+Dead Space 2 encontrado em: /home/voce/.local/share/Steam/steamapps/common/Dead Space 2
+DS2TexInject: instalado em /home/voce/.local/share/Steam/steamapps/common/Dead Space 2
 GPU: Intel(R) Arc(TM) B580 Graphics
 ```
+
+**A pasta do jogo é encontrada sozinha.** Ele procura em todas as bibliotecas da Steam (nativa, Flatpak e Snap), no Heroic (GOG, Epic e jogos adicionados à mão), no Lutris, no Bottles e nos prefixos do Wine. Se não achar, varre o disco inteiro. Se achar mais de uma cópia, pergunta qual você joga. A escolha fica guardada em `.game-path`. Para trocar depois:
+
+```sh
+./remaster.sh game                              # procura de novo em todos os discos
+./remaster.sh game "/onde/esta/Dead Space 2"    # ou informe a pasta
+```
+
+**Os modelos também são baixados sozinhos.** Se algum `.pth` sumir de `models/`, a próxima rodada baixa de novo antes de começar. Um download interrompido continua de onde parou.
 
 > **Intel Arc:** o PyTorch também precisa do driver de computação da Intel. No Arch: `sudo pacman -S intel-compute-runtime level-zero-loader`
 >
@@ -195,7 +206,8 @@ Abra o Dead Space 2 pelo Steam, normalmente.
 | `./remaster.sh dump-on` / `dump-off` | Liga ou desliga a coleta de texturas enquanto você joga. |
 | `./remaster.sh off` | Desativa o remaster (ficam só os seus `.tpf`). |
 | `./remaster.sh on` | Ativa de novo. |
-| `./remaster.sh setup` | Instala ou conserta o ambiente e baixa o modelo. |
+| `./remaster.sh setup` | Instala ou conserta o ambiente, baixa os modelos que faltam e confere o DS2TexInject. |
+| `./remaster.sh game [pasta]` | Procura o jogo de novo em todos os discos, ou usa a pasta informada. |
 
 ## Configurações
 
@@ -209,6 +221,7 @@ Ficam no topo do `remaster.sh`:
 | `MAX_SIZE` | `2048` | Lado máximo de qualquer textura. |
 | `GLOW_MODEL` | `4x-UltraSharp` | Modelo para luzes, brilhos, fachos e fumaça (classe `glow`), e para qualquer textura em que o modelo principal inventar detalhe que não existia. `GLOW_MODEL=` desliga os dois. |
 | `SOFT_MODEL` | vazio | Segundo modelo opcional, mais conservador (ex.: `models/4x-UltraSharp.pth`), para texturas de pouco detalhe. |
+| `GAME` | encontrada sozinha | Pasta do jogo. Normalmente não precisa: ela é descoberta e guardada em `.game-path`. |
 | `WORK` | `work/pbrify2x` | Pasta de trabalho. Troque quando trocar de modelo, para os resultados não se misturarem. |
 
 ---

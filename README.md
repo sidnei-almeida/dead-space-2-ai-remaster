@@ -119,11 +119,22 @@ cd dead-space-2-ai-remaster
 ./remaster.sh setup
 ```
 
-`setup` creates a Python environment in `.venv`, installs PyTorch and [spandrel](https://github.com/chaiNNer-org/spandrel), downloads the AI model and tells you which GPU it found:
+`setup` creates a Python environment in `.venv`, installs PyTorch and [spandrel](https://github.com/chaiNNer-org/spandrel), downloads any missing AI models, finds the game and tells you which GPU it found:
 
 ```
+Dead Space 2 encontrado em: /home/you/.local/share/Steam/steamapps/common/Dead Space 2
+DS2TexInject: instalado em /home/you/.local/share/Steam/steamapps/common/Dead Space 2
 GPU: Intel(R) Arc(TM) B580 Graphics
 ```
+
+**The game folder is found automatically.** It looks in every Steam library (native, Flatpak and Snap), Heroic (GOG, Epic and manually added games), Lutris, Bottles and Wine prefixes. If nothing turns up, it scans the whole disk. If it finds more than one copy, it asks which one you play. The choice is saved in `.game-path`. To change it later:
+
+```sh
+./remaster.sh game                              # search all disks again
+./remaster.sh game "/where/is/Dead Space 2"     # or give the folder
+```
+
+**Models are downloaded automatically too.** If a `.pth` goes missing from `models/`, the next run downloads it again before starting. An interrupted download resumes where it stopped.
 
 > **Intel Arc:** PyTorch also needs Intel's compute driver. On Arch: `sudo pacman -S intel-compute-runtime level-zero-loader`
 >
@@ -195,7 +206,8 @@ Launch Dead Space 2 from Steam as usual.
 | `./remaster.sh dump-on` / `dump-off` | Starts or stops collecting textures while you play. |
 | `./remaster.sh off` | Turns the remaster off (only your `.tpf` packs stay). |
 | `./remaster.sh on` | Turns it back on. |
-| `./remaster.sh setup` | Installs or repairs the environment and downloads the model. |
+| `./remaster.sh setup` | Installs or repairs the environment, downloads missing models and checks DS2TexInject. |
+| `./remaster.sh game [folder]` | Searches all disks for the game again, or uses the given folder. |
 
 ## Settings
 
@@ -209,6 +221,7 @@ They live at the top of `remaster.sh`:
 | `MAX_SIZE` | `2048` | Largest side of any texture. |
 | `GLOW_MODEL` | `4x-UltraSharp` | Model for lights, glows, light beams and smoke (the `glow` class), and for any texture where the main model invents detail that wasn't there. `GLOW_MODEL=` turns both off. |
 | `SOFT_MODEL` | empty | Optional second, more conservative model (e.g. `models/4x-UltraSharp.pth`) for low-detail textures. |
+| `GAME` | found automatically | Game folder. Usually not needed: it is discovered and saved in `.game-path`. |
 | `WORK` | `work/pbrify2x` | Working folder. Change it when you change the model, so results don't mix. |
 
 ---

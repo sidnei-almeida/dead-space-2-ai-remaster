@@ -14,7 +14,9 @@
 #
 # As configuracoes ficam logo abaixo. Para mudar, edite este arquivo.
 
-GAME="${GAME:-$HOME/.local/share/Steam/steamapps/common/Dead Space 2}"
+# Pasta do jogo: descoberta sozinha na primeira vez (Steam, Heroic, Lutris, Bottles, prefixos do Wine
+# ou qualquer pasta do disco) e lembrada em .game-path. Para trocar: ./remaster.sh game [pasta]
+GAME="${GAME:-}"
 # Modelo principal: PBRify_UpscalerV4 (DAT2, feito para texturas de jogos antigos: tira a compressao
 # DXT e recupera detalhe de verdade). Mais pesado que um ESRGAN, mas vale cada minuto.
 MODEL="${MODEL:-models/4x-PBRify_UpscalerV4.pth}"
@@ -45,6 +47,169 @@ set -u -o pipefail
 SELF=$(readlink -f "$0")
 cd "$(dirname "$SELF")" || exit 1
 PY=.venv/bin/python
+GAME_FILE=.game-path
+
+say_early() { echo "$*" >&2; }
+
+# lista as pastas com o deadspace2.exe, uma por linha, as que ja tem o DS2TexInject primeiro.
+# Com --deep, varre tambem o disco inteiro (home, /mnt, /media, /run/media, /opt).
+find_game_dirs() {
+    python3 - "$@" <<'FINDPY'
+import glob, json, os, sqlite3, sys
+H = os.path.expanduser('~')
+deep = '--deep' in sys.argv
+EXE = 'deadspace2.exe'
+found, seen = [], set()
+
+def add(d):
+    if not d or not os.path.isdir(d):
+        return
+    try:
+        exe = next((f for f in os.listdir(d) if f.lower() == EXE), None)
+    except OSError:
+        return
+    if not exe:
+        return
+    st = os.stat(d)
+    if (st.st_dev, st.st_ino) in seen:  # a mesma pasta montada em dois lugares
+        return
+    seen.add((st.st_dev, st.st_ino))
+    found.append(os.path.realpath(d))
+
+def walk(root, depth):
+    root = os.path.expanduser(root)
+    if not os.path.isdir(root):
+        return
+    base = root.rstrip('/').count('/')
+    skip = {'proc', 'sys', 'dev', '.cache', 'node_modules', '.git', 'Trash', 'shadercache', 'compatdata'}
+    for d, dirs, files in os.walk(root, onerror=lambda e: None):
+        if any(f.lower() == EXE for f in files):
+            add(d)
+        if d.count('/') - base >= depth:
+            dirs[:] = []
+        else:
+            dirs[:] = [x for x in dirs if x not in skip and not os.path.islink(os.path.join(d, x))]
+
+def load(p):
+    try:
+        return json.load(open(p))
+    except Exception:
+        return None
+
+# Steam: todas as bibliotecas (nativo, flatpak, snap)
+steams = ['~/.local/share/Steam', '~/.steam/steam', '~/.steam/root',
+          '~/.var/app/com.valvesoftware.Steam/.local/share/Steam', '~/snap/steam/common/.local/share/Steam']
+libs = set()
+for s in steams:
+    s = os.path.expanduser(s)
+    libs.add(s)
+    vdf = os.path.join(s, 'steamapps', 'libraryfolders.vdf')
+    if os.path.exists(vdf):
+        for line in open(vdf, errors='ignore'):
+            if '"path"' in line:
+                libs.add(line.split('"')[3].replace('\\\\', '/'))
+for lib in libs:
+    acf = os.path.join(lib, 'steamapps', 'appmanifest_47780.acf')
+    if os.path.exists(acf):
+        for line in open(acf, errors='ignore'):
+            if '"installdir"' in line:
+                add(os.path.join(lib, 'steamapps', 'common', line.split('"')[3]))
+    add(os.path.join(lib, 'steamapps', 'common', 'Dead Space 2'))
+
+# Heroic (GOG, Epic, Amazon e jogos adicionados a mao), nativo e flatpak
+for h in ['~/.config/heroic', '~/.var/app/com.heroicgameslauncher.hgl/config/heroic']:
+    h = os.path.expanduser(h)
+    gog = load(os.path.join(h, 'gog_store', 'installed.json')) or {}
+    for g in gog.get('installed', []):
+        add(g.get('install_path'))
+    leg = load(os.path.join(h, 'legendaryConfig', 'legendary', 'installed.json')) or {}
+    for g in leg.values() if isinstance(leg, dict) else []:
+        add(g.get('install_path'))
+    side = load(os.path.join(h, 'sideload_apps', 'library.json')) or {}
+    for g in side.get('games', []):
+        exe = (g.get('install') or {}).get('executable')
+        if exe:
+            add(os.path.dirname(exe))
+            walk(os.path.dirname(exe), 2)
+
+# Lutris
+for db in ['~/.local/share/lutris/pga.db', '~/.var/app/net.lutris.Lutris/data/lutris/pga.db']:
+    db = os.path.expanduser(db)
+    if os.path.exists(db):
+        try:
+            for (d,) in sqlite3.connect(f'file:{db}?mode=ro', uri=True).execute('select directory from games'):
+                if d:
+                    add(d)
+                    walk(d, 6)
+        except Exception:
+            pass
+
+# prefixos do Wine, Bottles, EA app e pastas comuns de jogos
+for root in ['~/Games', '~/games', '~/.wine/drive_c', '~/.local/share/bottles/bottles',
+             '~/.var/app/com.usebottles.bottles/data/bottles/bottles', '~/GOG Games', '~/.local/share/lutris']:
+    walk(root, 6)
+
+if deep or not found:
+    for root in [H, '/mnt', '/media', '/run/media', '/opt', '/games']:
+        walk(root, 8)
+
+found.sort(key=lambda d: not os.path.exists(os.path.join(d, 'DS2TexInject.ini')))
+print('\n'.join(found))
+FINDPY
+}
+
+is_game_dir() { [ -n "$1" ] && [ -d "$1" ] && ls "$1" 2>/dev/null | grep -qix 'deadspace2.exe'; }
+
+# escolhe uma pasta entre varias (ou pede o caminho, se nao achou nenhuma) e grava em .game-path
+pick_game_dir() {
+    local list=("$@") choice
+    if [ ${#list[@]} -eq 1 ]; then choice=${list[0]}
+    elif [ ${#list[@]} -gt 1 ]; then
+        if [ -t 0 ] && command -v gum >/dev/null; then
+            choice=$(gum choose --header "  Achei o Dead Space 2 em mais de um lugar. Qual voce joga?" "${list[@]}") || return 1
+        elif [ -t 0 ]; then
+            say_early "Achei o Dead Space 2 em mais de um lugar. Qual voce joga?"
+            PS3="Escolha um numero: "; select choice in "${list[@]}"; do [ -n "$choice" ] && break; done
+        else choice=${list[0]}; fi
+    else
+        [ -t 0 ] || return 1
+        say_early "Nao achei o Dead Space 2 sozinho. Cole o caminho da pasta do jogo (a que tem o deadspace2.exe):"
+        if command -v gum >/dev/null; then choice=$(gum input --placeholder "/caminho/para/Dead Space 2" --width 80) || return 1
+        else read -r -p "> " choice; fi
+        choice=${choice/#\~/$HOME}; choice=${choice%/}
+        is_game_dir "$choice" || { say_early "Essa pasta nao tem o deadspace2.exe."; return 1; }
+    fi
+    choice=$(readlink -f "$choice")
+    printf '%s\n' "$choice" > "$GAME_FILE"
+    say_early "Dead Space 2 encontrado em: $choice"
+    say_early "(guardado em $GAME_FILE; para trocar: ./remaster.sh game)"
+    GAME=$choice
+}
+
+resolve_game() {
+    if [ -n "$GAME" ]; then
+        is_game_dir "$GAME" && return 0
+        say_early "GAME=$GAME nao tem o deadspace2.exe."; exit 1
+    fi
+    if [ -f "$GAME_FILE" ]; then
+        GAME=$(head -1 "$GAME_FILE")
+        is_game_dir "$GAME" && return 0
+        say_early "A pasta guardada ($GAME) nao tem mais o jogo. Procurando de novo..."
+    fi
+    say_early "Procurando a pasta do Dead Space 2..."
+    local dirs; mapfile -t dirs < <(find_game_dirs)
+    pick_game_dir "${dirs[@]}" && return 0
+    say_early "Nao achei o Dead Space 2. Rode de novo informando a pasta:"
+    say_early "  ./remaster.sh game \"/caminho/para/Dead Space 2\""
+    exit 1
+}
+
+case "${1:-}" in
+    -h|--help|help) GAME=${GAME:-$(head -1 "$GAME_FILE" 2>/dev/null)} ;;
+    game) ;;  # o comando game cuida disso sozinho
+    *) resolve_game ;;
+esac
+
 TEXMOD="$GAME/texmod"
 INI="$GAME/DS2TexInject.ini"
 LOG="$WORK/remaster.log"
@@ -75,6 +240,57 @@ rebuild_cache() {
     python3 "$GAME/DS2TexInject/ds2tex.py" "$TEXMOD" 2>&1 | tail -6 | tee -a "$LOG"
 }
 
+# baixa um modelo que ainda nao esta em models/ (um download interrompido nao conta como baixado)
+ensure_model() {
+    local path=$1 url=$2 what=$3
+    [ -n "$path" ] || return 0
+    [ -s "$path" ] && return 0
+    mkdir -p "$(dirname "$path")"
+    if [ -z "$url" ]; then die "o modelo $path nao existe e nao sei de onde baixar. Coloque o arquivo .pth la."; fi
+    say "baixando o modelo $(basename "$path") ($what)"
+    curl -fL --retry 3 -C - --progress-bar -o "$path.part" "$url" && mv "$path.part" "$path" \
+        || die "falha ao baixar $(basename "$path"). Confira a internet e rode de novo (o download continua de onde parou)."
+}
+
+# modelos conhecidos: o URL vem do nome do arquivo, entao MODEL=models/4x-UltraSharp.pth tambem baixa sozinho
+model_url() {
+    case "$(basename "$1")" in
+        4x-PBRify_UpscalerV4.pth) echo "$MODEL_URL" ;;
+        4x-UltraSharp.pth) echo "$ULTRASHARP_URL" ;;
+        *) [ "$1" = "$MODEL" ] && echo "$MODEL_URL" ;;
+    esac
+}
+
+ensure_models() {
+    ensure_model "$MODEL" "$(model_url "$MODEL")" "modelo principal"
+    ensure_model "$GLOW_MODEL" "$(model_url "$GLOW_MODEL")" "luzes, brilhos e fumaca"
+    ensure_model "$SOFT_MODEL" "$(model_url "$SOFT_MODEL")" "texturas lisas"
+}
+
+# o DS2TexInject e quem coloca as texturas no jogo; sem ele o pacote nao aparece
+check_injector() {
+    if [ -f "$GAME/DS2TexInject.ini" ] && [ -f "$GAME/d3d9.dll" ]; then
+        say "DS2TexInject: instalado em $GAME"
+    else
+        say "AVISO: o DS2TexInject nao esta instalado em $GAME. Sem ele o remaster nao aparece no jogo."
+        say "       Baixe em https://github.com/sidnei-almeida/dead-space-2-texmod-linux"
+    fi
+}
+
+cmd_game() {
+    shift
+    if [ $# -gt 0 ]; then
+        local d=${1%/}
+        is_game_dir "$d" || die "essa pasta nao tem o deadspace2.exe: $d"
+        pick_game_dir "$d"
+    else
+        say_early "Procurando o Dead Space 2 em todos os discos (pode levar um minuto)..."
+        local dirs; mapfile -t dirs < <(find_game_dirs --deep)
+        pick_game_dir "${dirs[@]}" || die "nao achei. Informe a pasta: ./remaster.sh game \"/caminho/para/Dead Space 2\""
+    fi
+    GAME=$(head -1 "$GAME_FILE"); check_injector
+}
+
 cmd_setup() {
     mkdir -p "$WORK"
     if [ ! -x "$PY" ]; then
@@ -86,18 +302,8 @@ cmd_setup() {
         "$PY" -m pip install -q torch torchvision --index-url https://download.pytorch.org/whl/xpu || die "falha ao instalar o PyTorch"
     fi
     "$PY" -m pip install -q -r requirements.txt || die "falha ao instalar as dependencias"
-    if [ ! -f "$MODEL" ]; then
-        say "baixando o modelo $(basename "$MODEL")"
-        curl -fL --progress-bar -o "$MODEL.part" "$MODEL_URL" && mv "$MODEL.part" "$MODEL" || die "falha ao baixar o modelo"
-    fi
-    if [ -n "$GLOW_MODEL" ] && [ ! -f "$GLOW_MODEL" ]; then
-        say "baixando o modelo $(basename "$GLOW_MODEL") (luzes e brilhos)"
-        curl -fL --progress-bar -o "$GLOW_MODEL.part" "$ULTRASHARP_URL" && mv "$GLOW_MODEL.part" "$GLOW_MODEL" || die "falha ao baixar o modelo"
-    fi
-    if [ -n "$SOFT_MODEL" ] && [ ! -f "$SOFT_MODEL" ]; then
-        say "baixando o modelo $(basename "$SOFT_MODEL")"
-        curl -fL --progress-bar -o "$SOFT_MODEL.part" "$SOFT_MODEL_URL" && mv "$SOFT_MODEL.part" "$SOFT_MODEL" || die "falha ao baixar o modelo"
-    fi
+    ensure_models
+    check_injector
     "$PY" -c "import torch; print('GPU:', torch.xpu.get_device_name(0) if torch.xpu.is_available() else 'NAO ENCONTRADA (vai usar a CPU, bem mais lento)')"
 }
 
@@ -144,9 +350,8 @@ upscale_with_watchdog() {
 
 cmd_run() {
     need_game_closed
-    [ -x "$PY" ] && [ -f "$MODEL" ] || die "ambiente nao instalado. Rode primeiro: ./remaster.sh setup"
-    [ -z "$GLOW_MODEL" ] || [ -f "$GLOW_MODEL" ] || die "modelo $GLOW_MODEL nao encontrado. Rode: ./remaster.sh setup"
-    [ -z "$SOFT_MODEL" ] || [ -f "$SOFT_MODEL" ] || die "modelo $SOFT_MODEL nao encontrado. Rode: ./remaster.sh setup"
+    [ -x "$PY" ] || die "ambiente nao instalado. Rode primeiro: ./remaster.sh setup"
+    ensure_models
     mkdir -p "$WORK"
     exec 9> "$WORK/.lock"
     flock -n 9 || die "ja tem uma rodada em andamento (./remaster.sh status)"
@@ -399,6 +604,11 @@ play_game() {
         ask "Tem uma rodada em andamento, e abrir o jogo vai interrompe-la. Abrir mesmo assim?" || return
     fi
     if game_running; then msg "O jogo ja esta aberto."; return; fi
+    if [[ "$GAME" != */steamapps/common/* ]]; then
+        msg "${C_WARN}Este Dead Space 2 nao e da Steam.${C_0} Abra pelo launcher que voce usa (Heroic, Lutris, Bottles...)."
+        dump_is_on && msg "${C_DIM}A coleta esta ligada: as texturas novas vao ser salvas enquanto voce joga.${C_0}"
+        return
+    fi
     msg "${C_ACC}Abrindo o Dead Space 2 pelo Steam...${C_0}"
     dump_is_on && msg "${C_DIM}A coleta esta ligada: as texturas novas vao ser salvas enquanto voce joga.${C_0}"
     (xdg-open "steam://rungameid/$STEAM_APPID" >/dev/null 2>&1 || steam "steam://rungameid/$STEAM_APPID" >/dev/null 2>&1) &
@@ -486,7 +696,10 @@ ${b}COMANDOS${n}
   dump-off        Desliga a coleta.
   on              Ativa o pacote da IA no jogo.
   off             Desativa o pacote da IA (ficam so os seus .tpf).
-  setup           Instala o ambiente Python (PyTorch, spandrel) e baixa o modelo.
+  setup           Instala o ambiente Python (PyTorch, spandrel), baixa os modelos
+                  que faltam e confere se o DS2TexInject esta no jogo.
+  game [pasta]    Procura o Dead Space 2 de novo em todos os discos, ou usa a
+                  pasta informada. Na primeira vez isso e feito sozinho.
   -h, --help      Mostra esta ajuda.
 
 ${b}FLUXO TIPICO${n} (tudo isso tambem esta no menu)
@@ -502,7 +715,7 @@ ${b}CONFIGURACAO ATUAL${n} (edite no topo deste arquivo)
   escala        ${SCALE}x cor e normal maps, ${MASK_SCALE}x mascaras e mapas de luz
   lado maximo   ${MAX_SIZE}px
   trabalho      $WORK
-  jogo          $GAME
+  jogo          ${GAME:-(ainda nao encontrado)}   guardado em $GAME_FILE
 
 ${b}ARQUIVOS${n}
   $LOG    log da rodada
@@ -524,6 +737,7 @@ case "$1" in
     on) cmd_on ;;
     off) cmd_off ;;
     setup) cmd_setup ;;
+    game) cmd_game "$@" ;;
     -h|--help|help) cmd_help ;;
     *) echo "comando desconhecido: $1" >&2; echo "veja: ./remaster.sh --help" >&2; exit 1 ;;
 esac
