@@ -19,11 +19,16 @@ GAME="${GAME:-$HOME/.local/share/Steam/steamapps/common/Dead Space 2}"
 # DXT e recupera detalhe de verdade). Mais pesado que um ESRGAN, mas vale cada minuto.
 MODEL="${MODEL:-models/4x-PBRify_UpscalerV4.pth}"
 MODEL_URL="https://github.com/Kim2091/Kim2091-Models/releases/download/4x-PBRify_UpscalerV4/4x-PBRify_UpscalerV4.pth"
-# Degrades puros (facho da lanterna, brilhos, particulas) nao passam por IA nenhuma: so Lanczos.
+# Luzes, brilhos, fachos e fumaca (classe "glow"): o PBRify endurece as bordas e enche de chuvisco, entao
+# essas vao para o UltraSharp, que respeita o degrade. O mesmo modelo entra quando a checagem anti-invencao
+# pega o PBRify criando textura onde nao havia (medida "invencao" acima de 1.15). GLOW_MODEL= desliga os dois.
+GLOW_MODEL="${GLOW_MODEL-models/4x-UltraSharp.pth}"
+ULTRASHARP_URL="https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
+# Degrades puros (facho da lanterna, brilhos lisos) nao passam por IA nenhuma: so Lanczos.
 # Opcional: um segundo modelo mais conservador para texturas de pouco detalhe, ex.:
 #   SOFT_MODEL=models/4x-UltraSharp.pth ./remaster.sh run
 SOFT_MODEL="${SOFT_MODEL:-}"
-SOFT_MODEL_URL="https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
+SOFT_MODEL_URL="$ULTRASHARP_URL"
 SCALE="${SCALE:-2}"            # texturas de cor e normal maps
 MASK_SCALE="${MASK_SCALE:-2}"  # mascaras, specular e mapas de luz (ganham pouco e ocupam muita memoria)
 MAX_SIZE="${MAX_SIZE:-2048}"   # lado maximo de qualquer textura
@@ -46,6 +51,7 @@ LOG="$WORK/remaster.log"
 OPTS=(--game "$GAME" --work "$WORK" --scale "$SCALE" --mask-scale "$MASK_SCALE" --max-size "$MAX_SIZE" --pack-name "$PACK")
 [ -n "$LIMIT" ] && OPTS+=(--limit "$LIMIT")
 MODEL_OPTS=(--model "$MODEL")
+[ -n "$GLOW_MODEL" ] && MODEL_OPTS+=(--glow-model "$GLOW_MODEL")
 [ -n "$SOFT_MODEL" ] && MODEL_OPTS+=(--soft-model "$SOFT_MODEL")
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
@@ -83,6 +89,10 @@ cmd_setup() {
     if [ ! -f "$MODEL" ]; then
         say "baixando o modelo $(basename "$MODEL")"
         curl -fL --progress-bar -o "$MODEL.part" "$MODEL_URL" && mv "$MODEL.part" "$MODEL" || die "falha ao baixar o modelo"
+    fi
+    if [ -n "$GLOW_MODEL" ] && [ ! -f "$GLOW_MODEL" ]; then
+        say "baixando o modelo $(basename "$GLOW_MODEL") (luzes e brilhos)"
+        curl -fL --progress-bar -o "$GLOW_MODEL.part" "$ULTRASHARP_URL" && mv "$GLOW_MODEL.part" "$GLOW_MODEL" || die "falha ao baixar o modelo"
     fi
     if [ -n "$SOFT_MODEL" ] && [ ! -f "$SOFT_MODEL" ]; then
         say "baixando o modelo $(basename "$SOFT_MODEL")"
@@ -135,6 +145,7 @@ upscale_with_watchdog() {
 cmd_run() {
     need_game_closed
     [ -x "$PY" ] && [ -f "$MODEL" ] || die "ambiente nao instalado. Rode primeiro: ./remaster.sh setup"
+    [ -z "$GLOW_MODEL" ] || [ -f "$GLOW_MODEL" ] || die "modelo $GLOW_MODEL nao encontrado. Rode: ./remaster.sh setup"
     [ -z "$SOFT_MODEL" ] || [ -f "$SOFT_MODEL" ] || die "modelo $SOFT_MODEL nao encontrado. Rode: ./remaster.sh setup"
     mkdir -p "$WORK"
     exec 9> "$WORK/.lock"
@@ -143,6 +154,8 @@ cmd_run() {
     say "===== remaster: inicio ====="
     say "1/5 lendo o dump"
     "$PY" ds2remaster.py scan "${OPTS[@]}" 2>&1 | tail -8 | tee -a "$LOG" || die "scan falhou"
+    # resultados antigos em que a IA inventou textura (luzes com chuvisco) sao descartados e refeitos
+    "$PY" ds2remaster.py recheck "${OPTS[@]}" "${MODEL_OPTS[@]}" 2>&1 | tail -1 | tee -a "$LOG" || die "recheck falhou"
     say "2/5 upscale com IA (pode levar horas na primeira vez; acompanhe com ./remaster.sh status)"
     upscale_with_watchdog
     tail -1 "$LOG"
@@ -254,9 +267,11 @@ last_run() {  # "[22:17:31] ===== pronto em 2 min. Pode abrir o jogo. =====" -> 
 }
 
 line() { printf '  %-20s %s\n' "$1" "$2"; }
-model_label() {  # "PBRify_UpscalerV4 + UltraSharp nas lisas"
+model_label() {  # "PBRify_UpscalerV4 + UltraSharp nas luzes"
     local m; m=$(basename "$MODEL" .pth); m=${m#4x-}
-    if [ -n "$SOFT_MODEL" ]; then printf '%s + %s nas lisas' "$m" "$(basename "${SOFT_MODEL#*4x-}" .pth)"; else printf '%s' "$m"; fi
+    [ -n "$GLOW_MODEL" ] && m="$m + $(basename "${GLOW_MODEL#*4x-}" .pth) nas luzes"
+    [ -n "$SOFT_MODEL" ] && m="$m + $(basename "${SOFT_MODEL#*4x-}" .pth) nas lisas"
+    printf '%s' "$m"
 }
 
 menu_header() {
@@ -333,7 +348,7 @@ draw_dashboard() {
         pct=$(sed -n 's/.*"porcentagem": \([0-9.]*\).*/\1/p' "$j"); done=$(sed -n 's/.*"feitas": \([0-9]*\).*/\1/p' "$j")
         total=$(sed -n 's/.*"total": \([0-9]*\).*/\1/p' "$j"); left=$(sed -n 's/.*"faltam": "\([^"]*\)".*/\1/p' "$j")
         el=$(sed -n 's/.*"decorrido": "\([^"]*\)".*/\1/p' "$j"); err=$(sed -n 's/.*"erros": \([0-9]*\).*/\1/p' "$j")
-        cls=$(tr -d '\n ' < "$j" | sed -n 's/.*"por_classe":{\([^}]*\)}.*/\1/p' | sed 's/"diffuse":/cor /; s/"mask":/mascaras /; s/"normal_ag":/normal maps /; s/"normal":/normal RGB /; s/"smooth":/suaves /; s/"//g; s/,/   /g')
+        cls=$(tr -d '\n ' < "$j" | sed -n 's/.*"por_classe":{\([^}]*\)}.*/\1/p' | sed 's/"diffuse":/cor /; s/"mask":/mascaras /; s/"normal_ag":/normal maps /; s/"normal":/normal RGB /; s/"smooth":/suaves /; s/"glow":/luzes /; s/"//g; s/,/   /g')
         printf '  %s  %s%5s%%%s   %s / %s texturas\n' "$(progress_bar "$pct" 34)" "$C_B" "$pct" "$C_0" "$done" "$total"
         printf '  %sdecorrido %s   faltam ~%s   erros %s%s\n' "$C_DIM" "$el" "$left" "${err:-0}" "$C_0"
         [ -n "$cls" ] && printf '  %s%s%s\n' "$C_DIM" "$cls" "$C_0"
@@ -482,6 +497,7 @@ ${b}FLUXO TIPICO${n} (tudo isso tambem esta no menu)
 
 ${b}CONFIGURACAO ATUAL${n} (edite no topo deste arquivo)
   modelo        $MODEL
+  nas luzes     ${GLOW_MODEL:-(o mesmo)}   luzes, brilhos e fumaca, e tudo em que o modelo principal inventar textura
   nas lisas     ${SOFT_MODEL:-(o mesmo)}   opcional, para texturas de pouco detalhe; degrades puros nao passam por IA
   escala        ${SCALE}x cor e normal maps, ${MASK_SCALE}x mascaras e mapas de luz
   lado maximo   ${MAX_SIZE}px

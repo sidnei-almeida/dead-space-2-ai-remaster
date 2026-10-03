@@ -9,13 +9,14 @@ texmod/zz_ai_remaster.zip que o ds2tex.py do DS2TexInject ja sabe ler.
 Etapas (cada uma pode rodar sozinha; o que ja foi feito e pulado):
   scan      le o dump, classifica e grava work/manifest.json
   upscale   gera work/up/0xHASH.png
+  recheck   mede, nos resultados ja prontos, quanta textura a IA inventou e marca os ruins para refazer
   encode    converte para DDS (DXT1/DXT5/RGBA) em work/dds/
   pack      cria texmod/zz_ai_remaster.zip (+ texmod.def)
   preview   cria work/preview.html (original x IA lado a lado)
-  all       scan + upscale + encode + pack + preview
+  all       scan + recheck + upscale + encode + pack + preview
 
 Uso:  python3 ds2remaster.py all --game "~/.local/share/Steam/steamapps/common/Dead Space 2" \\
-          --model models/4x-PBRify_UpscalerV4.pth --limit 20
+          --model models/4x-PBRify_UpscalerV4.pth --glow-model models/4x-UltraSharp.pth --limit 20
 """
 import argparse, html, io, json, os, struct, sys, time, zipfile
 
@@ -25,8 +26,19 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GAME = os.path.expanduser('~/.local/share/Steam/steamapps/common/Dead Space 2')
 PACK_NAME = 'zz_ai_remaster.zip'  # "zz_": fica por ultimo, pacotes feitos a mao tem prioridade
-CLASSES = ('diffuse', 'normal', 'normal_ag', 'mask', 'smooth')
+CLASSES = ('diffuse', 'normal', 'normal_ag', 'mask', 'smooth', 'glow')
+CLASSIFIER_VERSION = 3  # suba quando mudar classify(): o scan reclassifica tudo e refaz o que mudou de classe
 SMOOTH_DETAIL = 0.008  # abaixo disso a textura e um degrade (brilho, facho de luz, mapa de dados)
+# 'glow': luzes, brilhos, fachos, fumaca e poeira. Pouco detalhe fino e formas suaves (o detalhe que existe e
+# pequeno perto do contraste das formas). O PBRify endurece as bordas e enche de chuvisco; vao para o
+# --glow-model (UltraSharp), que respeita o degrade.
+# Luz e fumaca sao cinza ou de uma cor so; uma foto suave ou um desenho (rosto, paisagem, cartaz desbotado)
+# tem varias matizes e continua com o modelo principal.
+GLOW_DETAIL, GLOW_SOFT, GLOW_HUES = 0.02, 0.12, 2
+# checagem anti-invencao na saida: alta frequencia do resultado (reduzido de volta ao tamanho do original)
+# dividida pela do original. ~1 = fiel; acima de INVENT_MAX a IA criou textura que nao existia (chuvisco numa
+# nuvem, aneis num brilho) e a textura e refeita com o --glow-model.
+INVENT_MAX = 1.15
 # trava local anti-invencao: regioes da textura que sao degrade puro (facho de luz, brilho, fundo chapado
 # de uma particula ou vidro) ficam com Lanczos; qualquer regiao com detalhe de verdade, mesmo pouco
 # (caixa, parede lisa, plastico), recebe a IA inteira. Entre os dois, uma rampa curta.
@@ -114,11 +126,61 @@ def classify(rgba):
     if detail < SMOOTH_DETAIL:
         return 'smooth', has_alpha, detail
 
+    # luz, brilho, fumaca: um pouco de detalhe (ruido DXT, bordas suaves), formas lisas, cinza ou de uma cor so
+    if detail < GLOW_DETAIL and softness(rgba) < GLOW_SOFT and hue_count(rgba) <= GLOW_HUES:
+        return 'glow', has_alpha, detail
+
     # mascara/specular: tons de cinza
     if np.abs(r - g).mean() < 0.01 and np.abs(g - b).mean() < 0.01:
         return 'mask', has_alpha, detail
 
     return 'diffuse', has_alpha, detail
+
+
+def visible(rgba):
+    """RGB sobre preto, com o alpha aplicado: e assim que uma particula ou um brilho aparece no jogo."""
+    return rgba[..., :3] * rgba[..., 3:4]
+
+
+def softness(rgba):
+    """Detalhe fino dividido pelo contraste das formas grandes. Baixo = formas suaves (nuvem, brilho,
+    painel de luz); alto = superficie com textura de verdade."""
+    img = visible(rgba)
+    f = max(1, max(img.shape[:2]) // 256)
+    if f > 1:
+        img = resize(img, max(1, img.shape[1] // f), max(1, img.shape[0] // f))
+    coarse = float(lowpass(img, 8).std())
+    return fine_detail(img) / (coarse + 1e-3)
+
+
+def hue_count(rgba):
+    """Quantas matizes distintas (de 12) aparecem nos pixels coloridos. 0 = cinza; 1-2 = uma cor so
+    (luz azul, brilho vermelho); 3+ = foto, desenho, cartaz."""
+    img = visible(rgba)
+    small = img[::max(1, img.shape[0] // 64), ::max(1, img.shape[1] // 64)].reshape(-1, 3)
+    mx, mn = small.max(1), small.min(1)
+    keep = ((mx - mn) / (mx + 1e-3) > 0.2) & (mx > 0.15)
+    if keep.mean() < 0.05:
+        return 0
+    r, g, b = (small[keep][:, i] for i in range(3))
+    mx, mn = mx[keep], mn[keep]
+    d = mx - mn + 1e-6
+    hue = np.where(mx == r, (g - b) / d % 6, np.where(mx == g, (b - r) / d + 2, (r - g) / d + 4)) / 6
+    bins = np.bincount((hue * 12).astype(int) % 12, minlength=12) / keep.sum()
+    return int((bins >= 0.08).sum())
+
+
+def invention(rgba, rgb_out):
+    """Quanta textura fina a IA criou: alta frequencia do resultado, reduzido de volta ao tamanho do
+    original, dividida pela do original (ambos com o alpha aplicado). ~1 = fiel; >INVENT_MAX = inventou."""
+    h, w = rgba.shape[:2]
+    o = visible(rgba)
+    u = resize(rgb_out, w, h, Image.BOX) * rgba[..., 3:4]
+    f = max(1, max(h, w) // 256)
+    if f > 1:
+        o, u = (resize(x, max(1, w // f), max(1, h // f)) for x in (o, u))
+    hf = lambda x: float(np.abs(x - lowpass(x, 3)).mean())
+    return hf(u) / (hf(o) + 1e-4)
 
 
 def detail_image(rgb):
@@ -140,6 +202,12 @@ def detail_map(rgb, out_w, out_h):
     return resize(d, out_w, out_h, Image.BILINEAR)[..., 0]
 
 
+def discard_result(a, h):
+    for stale in (os.path.join(a.work, 'up', h + '.png'), os.path.join(a.work, 'dds', h + '.dds')):
+        if os.path.exists(stale):
+            os.remove(stale)
+
+
 def cmd_scan(a):
     dump = a.dump or os.path.join(a.game, 'texmod', '_dump')
     if not os.path.isdir(dump):
@@ -153,14 +221,16 @@ def cmd_scan(a):
         h = f[:10].upper().replace('0X', '0x')
         src = os.path.join(dump, f)
         size = os.path.getsize(src)
-        if h in man and man[h].get('src') == src and man[h].get('size') == size and not a.force:
+        if (h in man and man[h].get('src') == src and man[h].get('size') == size and not a.force
+                and man[h].get('cv') == CLASSIFIER_VERSION):
             man[h]['covered'] = h in covered
             continue
         info = dds_info(src)
         if not info:
             continue
         w, hh, fmt = info
-        e = {'src': src, 'size': size, 'w': w, 'h': hh, 'fmt': fmt, 'covered': h in covered}
+        e = {'src': src, 'size': size, 'w': w, 'h': hh, 'fmt': fmt, 'covered': h in covered,
+             'cv': CLASSIFIER_VERSION}
         if min(w, hh) < a.min_size:
             e['class'] = 'skip'
             e['reason'] = 'pequena'
@@ -172,12 +242,16 @@ def cmd_scan(a):
             except Exception as ex:
                 e['class'], e['reason'] = 'skip', 'erro lendo: %s' % ex
         old = man.get(h)
-        if old and old.get('class') != e['class']:
-            # classificacao mudou (ex.: virou 'smooth'): o resultado antigo e refeito na proxima rodada
-            for stale in (os.path.join(a.work, 'up', h + '.png'), os.path.join(a.work, 'dds', h + '.dds')):
-                if os.path.exists(stale):
-                    os.remove(stale)
-            n_changed += 1
+        if old:
+            # o que a IA ja mediu/usou continua valendo enquanto a classe nao muda
+            for k in ('invent', 'model'):
+                if k in old:
+                    e[k] = old[k]
+            if old.get('class') != e['class']:
+                # classificacao mudou (ex.: virou 'glow'): o resultado antigo e refeito na proxima rodada
+                discard_result(a, h)
+                e.pop('invent', None), e.pop('model', None)
+                n_changed += 1
         man[h] = e
         n_new += 1
         if n_new % 200 == 0:
@@ -199,6 +273,7 @@ class Upscaler:
 
     def __init__(self, model_path, tile, cleanup_path=None, color_lock=True, guard=(DETAIL_LO, DETAIL_HI)):
         self.models, self.tile, self.color_lock, self.guard = [], tile, color_lock, guard
+        self.name = os.path.basename(model_path) if model_path else 'lanczos'
         if not model_path:
             self.device = None
             log('sem --model: usando Lanczos (sem IA), so para testar o pipeline')
@@ -340,9 +415,13 @@ def upscale_xy(a, x, y, ow, oh):
 
 
 def process(up, e, src, a):
+    """Retorna (imagem RGBA HxWx4, nome do modelo usado). Anota em e['invent'] a medida de invencao
+    do modelo principal e em e['model'] o modelo que ficou."""
     rgba = load_rgba(src)
     ow, oh = target_size(e, a)
     cls = e['class']
+    glow = getattr(a, 'glow', None)
+    used = 'lanczos'
     if cls == 'normal':
         # normal map nunca passa pelo modelo de foto: modelo de normal map (ou Lanczos) + renormalizacao
         rgb = renormalize(upscale_xy(a, rgba[..., 0], rgba[..., 1], ow, oh))
@@ -351,12 +430,27 @@ def process(up, e, src, a):
         # ficam iguais ao original, so redimensionados.
         n = renormalize(upscale_xy(a, rgba[..., 3], rgba[..., 1], ow, oh))
         rb = resize(np.stack([rgba[..., 0], rgba[..., 2]], -1), ow, oh)
-        return np.stack([rb[..., 0], n[..., 1], rb[..., 1], n[..., 0]], -1)
+        e['model'] = used
+        return np.stack([rb[..., 0], n[..., 1], rb[..., 1], n[..., 0]], -1), used
     elif cls == 'smooth' or (cls == 'mask' and a.no_ai_masks):
         rgb = resize(rgba[..., :3], ow, oh)
+    elif cls == 'glow' and glow:
+        rgb = glow.rgb(rgba[..., :3], ow, oh)
+        used = glow.name
+    elif glow and e.get('invent', 0) > a.invent_max:
+        # o recheck ja viu o modelo principal inventar textura aqui: vai direto para o conservador
+        rgb = glow.rgb(rgba[..., :3], ow, oh)
+        used = glow.name
     else:
         up = pick_model(up, e, a)
         rgb = up.rgb(rgba[..., :3], ow, oh)
+        used = up.name
+        if up.models and glow and glow is not up and not a.no_invent_check:
+            e['invent'] = round(invention(rgba, rgb), 3)
+            if e['invent'] > a.invent_max:
+                rgb = glow.rgb(rgba[..., :3], ow, oh)
+                used = glow.name
+    e['model'] = used
     if e.get('alpha'):
         al = rgba[..., 3:4]
         alpha = up.rgb(np.repeat(al, 3, -1), ow, oh).mean(-1, keepdims=True) if a.ai_alpha else resize(al, ow, oh)
@@ -364,7 +458,7 @@ def process(up, e, src, a):
             alpha = (alpha > 0.5).astype(np.float32)
     else:
         alpha = np.ones((oh, ow, 1), np.float32)
-    return np.concatenate([rgb, alpha], -1)
+    return np.concatenate([rgb, alpha], -1), used
 
 
 def pick_model(up, e, a):
@@ -418,6 +512,7 @@ def cmd_upscale(a):
     guard = None if a.no_detail_guard else (a.detail_lo, a.detail_hi)
     up = Upscaler(a.model, a.tile, a.cleanup, not a.no_color_lock, guard)
     a.soft = Upscaler(a.soft_model, a.tile, a.cleanup, not a.no_color_lock, guard) if a.soft_model else None
+    a.glow = Upscaler(a.glow_model, a.tile, a.cleanup, not a.no_color_lock, guard) if a.glow_model else None
     # normal map: a trava mantem a orientacao geral das superficies do original; o modelo so traz o relevo fino
     a.nup = Upscaler(a.normal_model, a.tile, None, True, guard) if a.normal_model else None
     t0, done, errors, total = time.time(), 0, 0, len(pending)
@@ -425,12 +520,14 @@ def cmd_upscale(a):
     for i, (h, e) in enumerate(pending, 1):
         t1 = time.time()
         try:
-            save_png(process(up, e, e['src'], a), os.path.join(outdir, h + '.png'))
+            img, used = process(up, e, e['src'], a)
+            save_png(img, os.path.join(outdir, h + '.png'))
             done += 1
             by_class[e['class']] = by_class.get(e['class'], 0) + 1
-            if e['class'] in ('diffuse', 'mask'):
-                mname = os.path.basename((a.soft_model if pick_model(up, e, a) is a.soft else a.model) or 'lanczos')
-                by_model[mname] = by_model.get(mname, 0) + 1
+            if e['class'] in ('diffuse', 'mask', 'glow'):
+                by_model[used] = by_model.get(used, 0) + 1
+            if i % 50 == 0:
+                save_manifest(a, man)  # guarda e['invent'] / e['model'] mesmo se a rodada for interrompida
         except Exception as ex:
             errors += 1
             log('  ERRO %s: %s' % (h, ex))
@@ -443,7 +540,43 @@ def cmd_upscale(a):
         write_status(a, etapa='upscale', feitas=i, total=total, porcentagem=round(100.0 * i / total, 1),
                      erros=errors, decorrido=fmt_time(el), faltam=fmt_time(eta), atual=h, por_classe=by_class,
                      por_modelo=by_model, modelo=os.path.basename(a.model) if a.model else 'lanczos')
+    save_manifest(a, man)
     log('%d texturas processadas em %s (%d erros)' % (done, fmt_time(time.time() - t0), errors))
+    if by_model:
+        log('por modelo: ' + ', '.join('%s %d' % kv for kv in sorted(by_model.items())))
+
+
+def cmd_recheck(a):
+    """Mede a invencao nos resultados ja prontos que ainda nao foram medidos e descarta os que passaram de
+    --invent-max: a proxima rodada refaz esses com o --glow-model. Barato quando nao ha nada novo."""
+    man = load_manifest(a)
+    updir = os.path.join(a.work, 'up')
+    pending = [(h, e) for h, e in todo(man, a) if e['class'] in ('diffuse', 'mask')
+               and 'invent' not in e and os.path.exists(os.path.join(updir, h + '.png'))]
+    if not pending:
+        log('nada para medir')
+        return
+    log('medindo a invencao em %d resultados' % len(pending))
+    bad, t0 = [], time.time()
+    for i, (h, e) in enumerate(pending, 1):
+        try:
+            rgba = load_rgba(e['src'])
+            out = load_rgba(os.path.join(updir, h + '.png'))[..., :3]
+            e['invent'] = round(invention(rgba, out), 3)
+        except Exception as ex:
+            log('  ERRO %s: %s' % (h, ex))
+            continue
+        if e['invent'] > a.invent_max:
+            bad.append(h)
+            discard_result(a, h)
+            e.pop('model', None)
+        if i % 500 == 0:
+            log('  %d/%d (%d para refazer)' % (i, len(pending), len(bad)))
+            save_manifest(a, man)
+    save_manifest(a, man)
+    log('%d resultados medidos em %s: %d inventaram textura (acima de %g) e serao refeitos com %s'
+        % (len(pending), fmt_time(time.time() - t0), len(bad), a.invent_max,
+           os.path.basename(a.glow_model) if a.glow_model else 'o mesmo modelo (passe --glow-model)'))
 
 
 def cmd_status(a):
@@ -580,10 +713,12 @@ def cmd_preview(a):
             Image.open(e['src']).convert('RGBA').save(orig)
         rows.append((h, e, os.path.relpath(orig, a.work), os.path.relpath(up, a.work)))
     cards = '\n'.join(
-        '<figure id="{h}"><figcaption><b>{h}</b> {c} {fmt} {w}x{hh} <span class=dim>detalhe {d}</span>'
+        '<figure id="{h}"><figcaption><b>{h}</b> {c} {fmt} {w}x{hh} <span class=dim>detalhe {d}{m}{inv}</span>'
         '<label><input type=checkbox data-h="{h}"> rejeitar</label>'
         '</figcaption><div class=pair><img loading=lazy src="{o}"><img loading=lazy src="{u}"></div></figure>'.format(
             h=h, c=e['class'], fmt=e['fmt'], w=e['w'], hh=e['h'], d='%.3f' % e.get('detail', -1),
+            m=' · %s' % e['model'].replace('.pth', '') if e.get('model') else '',
+            inv=' · invencao %.2f' % e['invent'] if 'invent' in e else '',
             o=html.escape(o), u=html.escape(u))
         for h, e, o, u in rows)
     page = PREVIEW_HTML.replace('{{CARDS}}', cards).replace('{{N}}', str(len(rows)))
@@ -630,7 +765,7 @@ def save_manifest(a, man):
 
 def main():
     ap = argparse.ArgumentParser(description='Remaster de texturas do Dead Space 2 com IA')
-    ap.add_argument('cmd', choices=['scan', 'upscale', 'encode', 'pack', 'preview', 'all', 'status'])
+    ap.add_argument('cmd', choices=['scan', 'recheck', 'upscale', 'encode', 'pack', 'preview', 'all', 'status'])
     ap.add_argument('--game', default=DEFAULT_GAME, help='pasta do jogo')
     ap.add_argument('--dump', help='pasta do dump (padrao: <jogo>/texmod/_dump)')
     ap.add_argument('--work', default=os.path.join(HERE, 'work'), help='pasta de trabalho')
@@ -638,6 +773,11 @@ def main():
     ap.add_argument('--soft-model', help='modelo conservador para texturas de pouco detalhe (ex.: 4x-UltraSharp)')
     ap.add_argument('--soft-below', type=float, default=SOFT_BELOW,
                     help='texturas com detalhe total abaixo disto vao para o --soft-model (padrao %g)' % SOFT_BELOW)
+    ap.add_argument('--glow-model', help='modelo para luzes, brilhos e fumaca (classe glow) e para o que o modelo '
+                                         'principal inventar textura (ex.: 4x-UltraSharp)')
+    ap.add_argument('--invent-max', type=float, default=INVENT_MAX,
+                    help='acima desta invencao o resultado do modelo principal e trocado pelo --glow-model (padrao %g)' % INVENT_MAX)
+    ap.add_argument('--no-invent-check', action='store_true', help='nao mede a invencao depois do modelo principal')
     ap.add_argument('--normal-model', help='modelo para normal maps no formato RG0 (ex.: 4x-Normal-RG0-BC1)')
     ap.add_argument('--cleanup', help='modelo 1x opcional aplicado antes (remove artefatos DXT)')
     ap.add_argument('--scale', type=int, default=2, help='fator final (padrao 2)')
@@ -667,7 +807,7 @@ def main():
     rej = os.path.join(a.work, 'rejected.txt')
     a.rejected = {l.strip() for l in open(rej)} if os.path.exists(rej) else set()
 
-    steps = ['scan', 'upscale', 'encode', 'pack', 'preview'] if a.cmd == 'all' else [a.cmd]
+    steps = ['scan', 'recheck', 'upscale', 'encode', 'pack', 'preview'] if a.cmd == 'all' else [a.cmd]
     for s in steps:
         log('== %s' % s)
         globals()['cmd_' + s](a)

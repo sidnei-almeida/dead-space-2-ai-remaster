@@ -69,7 +69,7 @@ and a menu opens. Pick with the arrow keys and press Enter:
   Puladas              831  (pequenas demais ou de cor unica)
   Dos seus mods        86  (seus .tpf ja cuidam delas)
   Esperando            917 novas, ainda nao processadas
-  Modelo               PBRify_UpscalerV4, 2x, ate 2048px
+  Modelo               PBRify_UpscalerV4 + UltraSharp nas luzes, 2x, ate 2048px
 
   O que voce quer fazer? (setas + Enter, Esc sai)
   ➜ ▶  Jogar Dead Space 2
@@ -87,7 +87,7 @@ While remastering, a live dashboard shows each step, a progress bar, time left a
 
 ```
   ✔  Ler as texturas coletadas
-  ⠹  Remasterizar com IA (PBRify_UpscalerV4)
+  ⠹  Remasterizar com IA (PBRify_UpscalerV4 + UltraSharp nas luzes)
   ·  Gerar DDS com mipmaps
   ·  Montar o pacote
   ·  Instalar no jogo
@@ -207,6 +207,7 @@ They live at the top of `remaster.sh`:
 | `SCALE` | `2` | Upscale factor for color textures and normal maps. |
 | `MASK_SCALE` | `2` | Factor for masks, specular and light maps. They gain little and use a lot of memory. |
 | `MAX_SIZE` | `2048` | Largest side of any texture. |
+| `GLOW_MODEL` | `4x-UltraSharp` | Model for lights, glows, light beams and smoke (the `glow` class), and for any texture where the main model invents detail that wasn't there. `GLOW_MODEL=` turns both off. |
 | `SOFT_MODEL` | empty | Optional second, more conservative model (e.g. `models/4x-UltraSharp.pth`) for low-detail textures. |
 | `WORK` | `work/pbrify2x` | Working folder. Change it when you change the model, so results don't mix. |
 
@@ -248,7 +249,9 @@ the game (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        original text
 | Normal map (DXT5nm, X in alpha and Y in green) | Never goes through a photo model. Resampled, renormalized, and the unused red and blue channels are kept as the game expects. |
 | Masks, specular, light maps | Clean resampling. AI would create seams between light map patches. |
 | Alpha | Upscaled separately. In DXT1 it goes back to 1-bit cut-outs (grates, foliage). |
-| Smooth (glows, light beams, gradients) | Clean resampling only. There is no detail to recover, and AI models invent texture there: rings and wrinkles that show up in the flashlight beam. |
+| Smooth (pure gradients) | Clean resampling only. There is no detail to recover, and AI models invent texture there: rings and wrinkles that show up in the flashlight beam. |
+| Lights, glows, light beams, smoke and dust (`glow`) | Soft shapes with little fine detail. PBRify hardens their edges and fills them with speckle, so they go to `GLOW_MODEL` (UltraSharp), which respects the gradient. |
+| Any texture, after the main model | An invention check: the result is shrunk back to the original size and its fine detail compared with the original's. Around 1.0 it is faithful; above `--invent-max` (1.15) the model made up texture, and that one is redone with `GLOW_MODEL`. `recheck` applies the same test to results from earlier runs. |
 | Any texture, flat regions | A local guard: where the original is a pure gradient (the flat background of a sign, a glow around a light) the AI is faded out and clean resampling is used. Crates, smooth walls and plastic still get the full AI. `--detail-lo`/`--detail-hi` tune it, `--no-detail-guard` turns it off. |
 | Tiny or single-color | Skipped. Nothing to gain. |
 
@@ -278,11 +281,13 @@ the game (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        original text
 | `--pack-name` | `zz_ai_remaster.zip` | Pack file name (must end in `.zip` and contain `_ai_`). |
 | `--ai-alpha` | off | Also run the AI on alpha channels. |
 | `--no-ai-masks` | off | Masks and specular maps with plain resampling instead of AI. |
+| `--glow-model` | none | Model for the `glow` class (lights, glows, smoke) and for results that fail the invention check. |
+| `--invent-max` | `1.15` | Above this much invented fine detail, the main model's result is replaced by `--glow-model`. `--no-invent-check` turns the check off. |
 | `--soft-model` | none | Second, conservative model for textures with little detail overall (`--soft-below`, default 0.016). |
 | `--no-color-lock` | off | Let the AI change colors. |
 | `--force` | off | Redo what already exists. |
 
-Steps: `scan`, `upscale`, `encode`, `pack`, `preview`, `all`, `status`. `preview` writes `work/preview.html` with original and AI side by side.
+Steps: `scan`, `recheck`, `upscale`, `encode`, `pack`, `preview`, `all`, `status`. `preview` writes `work/preview.html` with original and AI side by side, plus the model used and the invention score of each texture.
 </details>
 
 ---
@@ -290,7 +295,7 @@ Steps: `scan`, `upscale`, `encode`, `pack`, `preview`, `all`, `status`. `preview
 ## Credits
 
 - **[4x-PBRify_UpscalerV4](https://openmodeldb.info/models/4x-PBRify-UpscalerV4)** by Kim2091: the default upscaler (DAT2, runs in bf16).
-- **[4x-UltraSharp](https://openmodeldb.info/models/4x-UltraSharp)** by Kim2091: the previous default, still available as `SOFT_MODEL`.
+- **[4x-UltraSharp](https://openmodeldb.info/models/4x-UltraSharp)** by Kim2091: handles lights, glows and smoke (`GLOW_MODEL`), where PBRify invents texture.
 - **[spandrel](https://github.com/chaiNNer-org/spandrel)** by the chaiNNer team: loads almost any upscaling architecture.
 - **[OpenModelDB](https://openmodeldb.info)**: the catalog of community models.
 - **[DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux)**: dumps the original textures and loads the remastered ones.
@@ -299,4 +304,4 @@ Steps: `scan`, `upscale`, `encode`, `pack`, `preview`, `all`, `status`. `preview
 
 ## License
 
-[MIT](LICENSE). The AI models are not part of this project and keep their own licenses: 4x-PBRify_UpscalerV4 is CC0, so packs made with it can be shared freely. 4x-UltraSharp is CC BY-NC-SA 4.0: packs made with it can be shared with credit, under the same license and never sold. Check the license of any other model before sharing packs made with it. Dead Space 2 and its textures belong to Electronic Arts.
+[MIT](LICENSE). The AI models are not part of this project and keep their own licenses: 4x-PBRify_UpscalerV4 is CC0, so packs made with it alone can be shared freely. 4x-UltraSharp is CC BY-NC-SA 4.0, and the default setup uses it for lights and glows: packs made with the defaults can be shared with credit, under the same license and never sold. Run with `GLOW_MODEL=` for a pack that is PBRify only. Check the license of any other model before sharing packs made with it. Dead Space 2 and its textures belong to Electronic Arts.
