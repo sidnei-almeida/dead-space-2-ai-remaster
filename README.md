@@ -31,6 +31,68 @@ Dead Space 2 came out in 2011, and most of its textures are 128 to 512 pixels wi
 
 ---
 
+## Before and after
+
+Every pair below is a zoomed crop of the same region: the game's original texture on the left, the AI result on the right. Nothing was retouched by hand. Press **F10** in game to flip between the two.
+
+<p align="center"><img src="assets/comparacoes/necromorph-flesh.jpg" alt="Necromorph flesh and bone, 256×256 → 1024×1024. The gore is where the model shines: every tendon and rib gets real structure." width="100%"><br><sub>Necromorph flesh and bone, 256×256 → 1024×1024. The gore is where the model shines: every tendon and rib gets real structure.</sub></p>
+<p align="center"><img src="assets/comparacoes/paper-handwriting.jpg" alt="Handwritten document, 256×256 → 1024×1024. The typed lines and the ink strokes become legible." width="100%"><br><sub>Handwritten document, 256×256 → 1024×1024. The typed lines and the ink strokes become legible.</sub></p>
+<p align="center"><img src="assets/comparacoes/terminal-text.jpg" alt="Terminal screen, 256×256 → 1024×1024. Pixel text turns into clean glyphs without changing the font." width="100%"><br><sub>Terminal screen, 256×256 → 1024×1024. Pixel text turns into clean glyphs without changing the font.</sub></p>
+<p align="center"><img src="assets/comparacoes/metal-wall.jpg" alt="Metal wall with grating, 256×256 → 1024×1024. Rivets, grime and vents stop being a blur." width="100%"><br><sub>Metal wall with grating, 256×256 → 1024×1024. Rivets, grime and vents stop being a blur.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-unitology-relief.jpg" alt="Normal map of a Unitology relief, 256×256 → 1024×1024, rendered with a light to show the bumps. Normal maps go through their own model (4x-Normal-RG0), never through a photo upscaler." width="100%"><br><sub>Normal map of a Unitology relief, 256×256 → 1024×1024, rendered with a light to show the bumps. Normal maps go through their own model (4x-Normal-RG0), never through a photo upscaler.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-machine-panel.jpg" alt="Normal map of a machine panel, 512×256 → 2048×1024, lit. Bevels and screws come back as real relief." width="100%"><br><sub>Normal map of a machine panel, 512×256 → 2048×1024, lit. Bevels and screws come back as real relief.</sub></p>
+
+<details>
+<summary><b>More comparisons</b> (9 more: posters, labels, stained glass, pipes, fabric and four more normal maps)</summary>
+<br>
+
+<p align="center"><img src="assets/comparacoes/unitology-poster.jpg" alt="Unitology posters, 256×256 → 1024×1024." width="100%"><br><sub>Unitology posters, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/isc-label.jpg" alt="Industrial cleaner label, 256×256 → 1024×1024." width="100%"><br><sub>Industrial cleaner label, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/stained-glass.jpg" alt="Stained glass, 256×512 → 1024×2048." width="100%"><br><sub>Stained glass, 256×512 → 1024×2048.</sub></p>
+<p align="center"><img src="assets/comparacoes/pipes.jpg" alt="Pipes and conduits, 256×256 → 1024×1024." width="100%"><br><sub>Pipes and conduits, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/red-fabric.jpg" alt="Red fabric, 256×256 → 1024×1024." width="100%"><br><sub>Red fabric, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-spiral-ornament.jpg" alt="Normal map, spiral ornament, lit." width="100%"><br><sub>Normal map, spiral ornament, lit.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-figures-relief.jpg" alt="Normal map, figures in relief, 512×256 → 2048×1024, lit." width="100%"><br><sub>Normal map, figures in relief, 512×256 → 2048×1024, lit.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-bulky-panels.jpg" alt="Normal map, bulky panels, lit." width="100%"><br><sub>Normal map, bulky panels, lit.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-circuit.jpg" alt="Normal map, circuit traces, lit." width="100%"><br><sub>Normal map, circuit traces, lit.</sub></p>
+
+</details>
+
+**How many textures is that?** A full playthrough of the campaign hands over about **15,000 unique textures**. The default run remasters **14,400** of them (the rest are 1 to 7 pixel strips, single-color fills and textures already covered by your `.tpf` packs). By kind, in the run that produced the images above:
+
+| Kind | Textures | What was done |
+|---|---:|---|
+| Color (diffuse) | 4,764 | 4x with PBRify_UpscalerV4, or UltraSharp when the invention check fails |
+| Masks, specular, light maps | 5,982 | 2x, careful resampling |
+| Normal maps | 1,515 | 4x with 4x-Normal-RG0 |
+| Smooth gradients | 1,198 | 4x resampling, no AI (there is nothing to recover) |
+| Lights, glows, smoke | 822 | 4x with UltraSharp |
+
+Up to 4096 px a side, full mipmap chains, **18 GB** on disk, about 9 hours on an Intel Arc B580.
+
+---
+
+## Don't want to run the AI? Download the pack
+
+The pack from the run above is on the [**Releases**](https://github.com/sidnei-almeida/dead-space-2-ai-remaster/releases/latest) page: 14,400 textures, 18 GB, split into parts of under 2 GB because of GitHub's file size limit. You need about **36 GB free** (the pack plus the cache DS2TexInject builds from it), no GPU required.
+
+1. Install [DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux) and run the game once.
+2. Download **every** `zz_ai_remaster.zip.0NN` part and `zz_ai_remaster.sha256` into the game's `texmod` folder.
+3. Join the parts, check them and build the cache, with the game closed:
+
+```sh
+cd "$HOME/.local/share/Steam/steamapps/common/Dead Space 2/texmod"
+cat zz_ai_remaster.zip.0* > zz_ai_remaster.zip && rm zz_ai_remaster.zip.0*
+sha256sum -c zz_ai_remaster.sha256          # optional, takes a minute
+python3 ../DS2TexInject/ds2tex.py .
+```
+
+4. Play. **F10** flips between original and remaster. Your own `.tpf` packs keep priority: the pack skips every hash they already cover.
+
+The pack is shared under **CC BY-NC-SA 4.0** (one of the models requires it, see [License](#license)): credit, same license, never sold.
+
+---
+
 ## Quick start
 
 | Step | What to do |
@@ -41,7 +103,7 @@ Dead Space 2 came out in 2011, and most of its textures are 128 to 512 pixels wi
 | 4 | Close the game, run **`./remaster.sh`** and pick **Remasterizar**. Go get a coffee. |
 | 5 | **Play.** Press **F10** to compare before and after. |
 
-Each step is explained below.
+Each step is explained below. Or skip the AI entirely and [download the ready-made pack](#dont-want-to-run-the-ai-download-the-pack).
 
 ---
 
@@ -69,7 +131,7 @@ and a menu opens. Pick with the arrow keys and press Enter:
   Puladas              831  (pequenas demais ou de cor unica)
   Dos seus mods        86  (seus .tpf ja cuidam delas)
   Esperando            917 novas, ainda nao processadas
-  Modelo               PBRify_UpscalerV4 + UltraSharp nas luzes, 2x, ate 2048px
+  Modelo               PBRify_UpscalerV4 + UltraSharp nas luzes + Normal-RG0 no relevo, 4x, ate 4096px
 
   O que voce quer fazer? (setas + Enter, Esc sai)
   ➜ ▶  Jogar Dead Space 2
@@ -87,7 +149,7 @@ While remastering, a live dashboard shows each step, a progress bar, time left a
 
 ```
   ✔  Ler as texturas coletadas
-  ⠹  Remasterizar com IA (PBRify_UpscalerV4 + UltraSharp nas luzes)
+  ⠹  Remasterizar com IA (PBRify_UpscalerV4 + UltraSharp nas luzes + Normal-RG0 no relevo)
   ·  Gerar DDS com mipmaps
   ·  Montar o pacote
   ·  Instalar no jogo
@@ -216,13 +278,14 @@ They live at the top of `remaster.sh`:
 | Setting | Default | What it does |
 |---|---|---|
 | `MODEL` | `4x-PBRify_UpscalerV4` | Any model [spandrel](https://github.com/chaiNNer-org/spandrel) can load: ESRGAN, SPAN, DAT, HAT... Browse [OpenModelDB](https://openmodeldb.info). |
-| `SCALE` | `2` | Upscale factor for color textures and normal maps. |
+| `SCALE` | `4` | Upscale factor for color textures and normal maps. |
 | `MASK_SCALE` | `2` | Factor for masks, specular and light maps. They gain little and use a lot of memory. |
-| `MAX_SIZE` | `2048` | Largest side of any texture. |
+| `MAX_SIZE` | `4096` | Largest side of any texture. |
 | `GLOW_MODEL` | `4x-UltraSharp` | Model for lights, glows, light beams and smoke (the `glow` class), and for any texture where the main model invents detail that wasn't there. `GLOW_MODEL=` turns both off. |
+| `NORMAL_MODEL` | `4x-Normal-RG0` | Model for normal maps, trained only on normal maps. `NORMAL_MODEL=` falls back to Lanczos resampling. |
 | `SOFT_MODEL` | empty | Optional second, more conservative model (e.g. `models/4x-UltraSharp.pth`) for low-detail textures. |
 | `GAME` | found automatically | Game folder. Usually not needed: it is discovered and saved in `.game-path`. |
-| `WORK` | `work/pbrify2x` | Working folder. Change it when you change the model, so results don't mix. |
+| `WORK` | `work/pbrify4x` | Working folder (`work/pbrify<SCALE>x`). Change it when you change the model, so results don't mix. |
 
 ---
 
@@ -232,9 +295,9 @@ They live at the top of `remaster.sh`:
 |---|---|
 | **`GPU: NAO ENCONTRADA`** | PyTorch can't see the GPU. On Intel Arc, install `intel-compute-runtime` and `level-zero-loader`. |
 | **The game crashes when entering new areas, or after a long session** | Dead Space 2 is a 32-bit program and can run out of memory. Lower `MAX_SIZE` to `1024`, run `./remaster.sh run` again, or set `Pool=default` in `DS2TexInject.ini`. |
-| **Some texture looks wrong** | Press **F10** to confirm. Run `./remaster.sh preview`, open the page it prints, find the texture, and add its hash to `work/pbrify2x/rejected.txt`. The next run leaves it out. |
+| **Some texture looks wrong** | Press **F10** to confirm. Run `./remaster.sh preview`, open the page it prints, find the texture, and add its hash to `work/pbrify4x/rejected.txt`. The next run leaves it out. |
 | **The game stutters when entering new areas** | Make sure DS2TexInject is up to date and Pillow is installed (`sudo pacman -S python-pillow`), then run `./remaster.sh on`. Textures will be loaded game-ready. |
-| **Anything else** | Check `work/pbrify2x/remaster.log` and open an issue with it. |
+| **Anything else** | Check `work/pbrify4x/remaster.log` and open an issue with it. |
 
 <p align="center"><a href="https://github.com/sidnei-almeida/dead-space-2-ai-remaster/issues"><img alt="Need help? Open an issue" src="https://img.shields.io/badge/Need%20help%3F-Open%20an%20issue-ff5a3c?style=for-the-badge&labelColor=0d1a1f&logo=github&logoColor=white"></a></p>
 
@@ -248,7 +311,7 @@ You don't need this part to use the tool.
 the game (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        original textures, named by their TexMod hash
         │
         ▼  scan        sort each texture: color, normal map, mask, too small, single color
-        ▼  upscale     AI for color textures, careful resampling for normal maps and masks
+        ▼  upscale     AI for color textures and normal maps, careful resampling for masks
         ▼  encode      back to the original format (DXT1, DXT5, ARGB) with a full mipmap chain
         ▼  pack        texmod/zz_ai_remaster.zip  (+ texmod.def)
         ▼  ds2tex.py   texmod/_cache, where DS2TexInject finds it while you play
@@ -259,7 +322,7 @@ the game (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        original text
 | Kind | What happens |
 |---|---|
 | Color (diffuse) | AI upscale with wrap padding so tiling textures don't get seams, then a color lock: low frequencies come from the original, so colors and lighting stay true. |
-| Normal map (DXT5nm, X in alpha and Y in green) | Never goes through a photo model. Resampled, renormalized, and the unused red and blue channels are kept as the game expects. |
+| Normal map (DXT5nm, X in alpha and Y in green) | Never goes through a photo model. Upscaled with a model trained only on normal maps (`NORMAL_MODEL`, 4x-Normal-RG0), renormalized, and the unused red and blue channels are kept as the game expects. |
 | Masks, specular, light maps | Clean resampling. AI would create seams between light map patches. |
 | Alpha | Upscaled separately. In DXT1 it goes back to 1-bit cut-outs (grates, foliage). |
 | Smooth (pure gradients) | Clean resampling only. There is no detail to recover, and AI models invent texture there: rings and wrinkles that show up in the flashlight beam. |
@@ -309,6 +372,7 @@ Steps: `scan`, `recheck`, `upscale`, `encode`, `pack`, `preview`, `all`, `status
 
 - **[4x-PBRify_UpscalerV4](https://openmodeldb.info/models/4x-PBRify-UpscalerV4)** by Kim2091: the default upscaler (DAT2, runs in bf16).
 - **[4x-UltraSharp](https://openmodeldb.info/models/4x-UltraSharp)** by Kim2091: handles lights, glows and smoke (`GLOW_MODEL`), where PBRify invents texture.
+- **[4x-Normal-RG0](https://openmodeldb.info/models/4x-Normal-RG0)** by RunDevelopment: upscales the normal maps (`NORMAL_MODEL`), the single biggest gain in depth.
 - **[spandrel](https://github.com/chaiNNer-org/spandrel)** by the chaiNNer team: loads almost any upscaling architecture.
 - **[OpenModelDB](https://openmodeldb.info)**: the catalog of community models.
 - **[DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux)**: dumps the original textures and loads the remastered ones.
@@ -317,4 +381,4 @@ Steps: `scan`, `recheck`, `upscale`, `encode`, `pack`, `preview`, `all`, `status
 
 ## License
 
-[MIT](LICENSE). The AI models are not part of this project and keep their own licenses: 4x-PBRify_UpscalerV4 is CC0, so packs made with it alone can be shared freely. 4x-UltraSharp is CC BY-NC-SA 4.0, and the default setup uses it for lights and glows: packs made with the defaults can be shared with credit, under the same license and never sold. Run with `GLOW_MODEL=` for a pack that is PBRify only. Check the license of any other model before sharing packs made with it. Dead Space 2 and its textures belong to Electronic Arts.
+[MIT](LICENSE). The AI models are not part of this project and keep their own licenses: 4x-PBRify_UpscalerV4 and 4x-Normal-RG0 are CC0, so packs made with them alone can be shared freely. 4x-UltraSharp is CC BY-NC-SA 4.0, and the default setup uses it for lights and glows: packs made with the defaults can be shared with credit, under the same license and never sold. Run with `GLOW_MODEL=` for a pack that is PBRify only. Check the license of any other model before sharing packs made with it. Dead Space 2 and its textures belong to Electronic Arts.

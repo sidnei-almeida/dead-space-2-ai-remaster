@@ -208,6 +208,13 @@ def discard_result(a, h):
             os.remove(stale)
 
 
+def too_small(w, h, a):
+    """So fica de fora o que nao tem imagem nenhuma (1x1, 4x4: tabelas de cor). Tiras e quadradinhos de 8 e 16px
+    entram: frisos, bordas de painel, letreiros de holograma, particulas (decidido em 04/10 olhando a planilha
+    work/comparacoes/pequenas_ignoradas_por_classe.png)."""
+    return max(w, h) < a.min_size
+
+
 def cmd_scan(a):
     dump = a.dump or os.path.join(a.game, 'texmod', '_dump')
     if not os.path.isdir(dump):
@@ -222,7 +229,8 @@ def cmd_scan(a):
         src = os.path.join(dump, f)
         size = os.path.getsize(src)
         if (h in man and man[h].get('src') == src and man[h].get('size') == size and not a.force
-                and man[h].get('cv') == CLASSIFIER_VERSION):
+                and man[h].get('cv') == CLASSIFIER_VERSION
+                and not (man[h].get('reason') == 'pequena' and not too_small(man[h]['w'], man[h]['h'], a))):
             man[h]['covered'] = h in covered
             continue
         info = dds_info(src)
@@ -231,7 +239,7 @@ def cmd_scan(a):
         w, hh, fmt = info
         e = {'src': src, 'size': size, 'w': w, 'h': hh, 'fmt': fmt, 'covered': h in covered,
              'cv': CLASSIFIER_VERSION}
-        if min(w, hh) < a.min_size:
+        if too_small(w, hh, a):
             e['class'] = 'skip'
             e['reason'] = 'pequena'
         else:
@@ -551,6 +559,16 @@ def cmd_recheck(a):
     --invent-max: a proxima rodada refaz esses com o --glow-model. Barato quando nao ha nada novo."""
     man = load_manifest(a)
     updir = os.path.join(a.work, 'up')
+    if a.normal_model:
+        # normal maps feitos so com Lanczos (rodada sem --normal-model) sao refeitos com o modelo
+        stale = [h for h, e in todo(man, a) if e['class'] in ('normal', 'normal_ag') and e.get('model') == 'lanczos'
+                 and os.path.exists(os.path.join(updir, h + '.png'))]
+        for h in stale:
+            discard_result(a, h)
+            man[h].pop('model', None)
+        if stale:
+            save_manifest(a, man)
+            log('%d normal maps feitos sem modelo serao refeitos com %s' % (len(stale), os.path.basename(a.normal_model)))
     pending = [(h, e) for h, e in todo(man, a) if e['class'] in ('diffuse', 'mask')
                and 'invent' not in e and os.path.exists(os.path.join(updir, h + '.png'))]
     if not pending:
@@ -778,12 +796,12 @@ def main():
     ap.add_argument('--invent-max', type=float, default=INVENT_MAX,
                     help='acima desta invencao o resultado do modelo principal e trocado pelo --glow-model (padrao %g)' % INVENT_MAX)
     ap.add_argument('--no-invent-check', action='store_true', help='nao mede a invencao depois do modelo principal')
-    ap.add_argument('--normal-model', help='modelo para normal maps no formato RG0 (ex.: 4x-Normal-RG0-BC1)')
+    ap.add_argument('--normal-model', help='modelo para normal maps no formato RG0 (ex.: 4x-Normal-RG0); sem ele, Lanczos')
     ap.add_argument('--cleanup', help='modelo 1x opcional aplicado antes (remove artefatos DXT)')
     ap.add_argument('--scale', type=int, default=2, help='fator final (padrao 2)')
     ap.add_argument('--mask-scale', type=int, help='fator para mascaras/mapas de luz (padrao: igual a --scale)')
     ap.add_argument('--max-size', type=int, default=2048, help='lado maximo (padrao 2048)')
-    ap.add_argument('--min-size', type=int, default=32, help='ignora texturas menores que isso')
+    ap.add_argument('--min-size', type=int, default=8, help='ignora texturas com o lado maior menor que isso')
     ap.add_argument('--tile', type=int, default=544, help='tamanho do bloco na GPU')
     ap.add_argument('--only', nargs='+', choices=CLASSES, help='so estas classes')
     ap.add_argument('--recent', type=float, help='so texturas salvas nos ultimos N minutos do dump')

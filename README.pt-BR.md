@@ -31,6 +31,68 @@ O Dead Space 2 é de 2011, e a maior parte das texturas dele tem entre 128 e 512
 
 ---
 
+## Antes e depois
+
+Cada par abaixo é um recorte ampliado da mesma região: a textura original do jogo à esquerda, o resultado da IA à direita. Nada foi retocado à mão. Aperte **F10** no jogo para alternar entre os dois.
+
+<p align="center"><img src="assets/comparacoes/necromorph-flesh.jpg" alt="Carne e osso de necromorfo, 256×256 → 1024×1024. O gore é onde o modelo brilha: cada tendão e costela ganha estrutura de verdade." width="100%"><br><sub>Carne e osso de necromorfo, 256×256 → 1024×1024. O gore é onde o modelo brilha: cada tendão e costela ganha estrutura de verdade.</sub></p>
+<p align="center"><img src="assets/comparacoes/paper-handwriting.jpg" alt="Documento manuscrito, 256×256 → 1024×1024. As linhas datilografadas e os traços de caneta ficam legíveis." width="100%"><br><sub>Documento manuscrito, 256×256 → 1024×1024. As linhas datilografadas e os traços de caneta ficam legíveis.</sub></p>
+<p align="center"><img src="assets/comparacoes/terminal-text.jpg" alt="Tela de terminal, 256×256 → 1024×1024. O texto pixelado vira glifo limpo sem trocar a fonte." width="100%"><br><sub>Tela de terminal, 256×256 → 1024×1024. O texto pixelado vira glifo limpo sem trocar a fonte.</sub></p>
+<p align="center"><img src="assets/comparacoes/metal-wall.jpg" alt="Parede de metal com grades, 256×256 → 1024×1024. Rebites, sujeira e respiros deixam de ser borrão." width="100%"><br><sub>Parede de metal com grades, 256×256 → 1024×1024. Rebites, sujeira e respiros deixam de ser borrão.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-unitology-relief.jpg" alt="Normal map de um relevo da Unitologia, 256×256 → 1024×1024, renderizado com luz para mostrar o relevo. Normal maps passam por um modelo próprio (4x-Normal-RG0), nunca por upscaler de foto." width="100%"><br><sub>Normal map de um relevo da Unitologia, 256×256 → 1024×1024, renderizado com luz para mostrar o relevo. Normal maps passam por um modelo próprio (4x-Normal-RG0), nunca por upscaler de foto.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-machine-panel.jpg" alt="Normal map de um painel de máquina, 512×256 → 2048×1024, iluminado. Chanfros e parafusos voltam como relevo de verdade." width="100%"><br><sub>Normal map de um painel de máquina, 512×256 → 2048×1024, iluminado. Chanfros e parafusos voltam como relevo de verdade.</sub></p>
+
+<details>
+<summary><b>Mais comparações</b> (mais 9: pôsteres, etiquetas, vitral, canos, tecido e mais quatro normal maps)</summary>
+<br>
+
+<p align="center"><img src="assets/comparacoes/unitology-poster.jpg" alt="Pôsteres da Unitologia, 256×256 → 1024×1024." width="100%"><br><sub>Pôsteres da Unitologia, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/isc-label.jpg" alt="Etiqueta de produto de limpeza industrial, 256×256 → 1024×1024." width="100%"><br><sub>Etiqueta de produto de limpeza industrial, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/stained-glass.jpg" alt="Vitral, 256×512 → 1024×2048." width="100%"><br><sub>Vitral, 256×512 → 1024×2048.</sub></p>
+<p align="center"><img src="assets/comparacoes/pipes.jpg" alt="Canos e condutes, 256×256 → 1024×1024." width="100%"><br><sub>Canos e condutes, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/red-fabric.jpg" alt="Tecido vermelho, 256×256 → 1024×1024." width="100%"><br><sub>Tecido vermelho, 256×256 → 1024×1024.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-spiral-ornament.jpg" alt="Normal map, ornamento em espiral, iluminado." width="100%"><br><sub>Normal map, ornamento em espiral, iluminado.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-figures-relief.jpg" alt="Normal map, figuras em relevo, 512×256 → 2048×1024, iluminado." width="100%"><br><sub>Normal map, figuras em relevo, 512×256 → 2048×1024, iluminado.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-bulky-panels.jpg" alt="Normal map, painéis volumosos, iluminado." width="100%"><br><sub>Normal map, painéis volumosos, iluminado.</sub></p>
+<p align="center"><img src="assets/comparacoes/normal-circuit.jpg" alt="Normal map, trilhas de circuito, iluminado." width="100%"><br><sub>Normal map, trilhas de circuito, iluminado.</sub></p>
+
+</details>
+
+**Quantas texturas são?** Zerar a campanha entrega cerca de **15.000 texturas únicas**. A rodada padrão remasteriza **14.400** delas (o resto são tiras de 1 a 7 pixels, preenchimentos de cor única e texturas que os seus `.tpf` já cobrem). Por tipo, na rodada que gerou as imagens acima:
+
+| Tipo | Texturas | O que foi feito |
+|---|---:|---|
+| Cor (diffuse) | 4.764 | 4x com PBRify_UpscalerV4, ou UltraSharp quando a checagem de invenção reprova |
+| Máscaras, specular, mapas de luz | 5.982 | 2x, reamostragem cuidadosa |
+| Normal maps | 1.515 | 4x com 4x-Normal-RG0 |
+| Degradês lisos | 1.198 | 4x por reamostragem, sem IA (não há o que recuperar) |
+| Luzes, brilhos, fumaça | 822 | 4x com UltraSharp |
+
+Até 4096 px de lado, mipmaps completos, **18 GB** em disco, cerca de 9 horas numa Intel Arc B580.
+
+---
+
+## Não quer rodar a IA? Baixe o pacote pronto
+
+O pacote da rodada acima está na página de [**Releases**](https://github.com/sidnei-almeida/dead-space-2-ai-remaster/releases/latest): 14.400 texturas, 18 GB, divididos em partes de menos de 2 GB por causa do limite de tamanho do GitHub. Você precisa de uns **36 GB livres** (o pacote mais o cache que o DS2TexInject monta a partir dele), e não precisa de GPU.
+
+1. Instale o [DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux) e abra o jogo uma vez.
+2. Baixe **todas** as partes `zz_ai_remaster.zip.0NN` e o `zz_ai_remaster.sha256` para a pasta `texmod` do jogo.
+3. Junte as partes, confira e monte o cache, com o jogo fechado:
+
+```sh
+cd "$HOME/.local/share/Steam/steamapps/common/Dead Space 2/texmod"
+cat zz_ai_remaster.zip.0* > zz_ai_remaster.zip && rm zz_ai_remaster.zip.0*
+sha256sum -c zz_ai_remaster.sha256          # opcional, leva um minuto
+python3 ../DS2TexInject/ds2tex.py .
+```
+
+4. Jogue. **F10** alterna entre original e remaster. Seus pacotes `.tpf` continuam com prioridade: o pacote pula todo hash que eles já cobrem.
+
+O pacote é compartilhado sob **CC BY-NC-SA 4.0** (um dos modelos exige, veja [Licença](#licença)): crédito, mesma licença, nunca vendido.
+
+---
+
 ## Resumo rápido
 
 | Passo | O que fazer |
@@ -41,7 +103,7 @@ O Dead Space 2 é de 2011, e a maior parte das texturas dele tem entre 128 e 512
 | 4 | Fechar o jogo, rodar **`./remaster.sh`** e escolher **Remasterizar**. Vá tomar um café. |
 | 5 | **Jogar.** Aperte **F10** para comparar antes e depois. |
 
-Cada passo está explicado abaixo.
+Cada passo está explicado abaixo. Ou pule a IA e [baixe o pacote pronto](#não-quer-rodar-a-ia-baixe-o-pacote-pronto).
 
 ---
 
@@ -69,7 +131,7 @@ e um menu abre. Escolha com as setas e aperte Enter:
   Puladas              831  (pequenas demais ou de cor unica)
   Dos seus mods        86  (seus .tpf ja cuidam delas)
   Esperando            917 novas, ainda nao processadas
-  Modelo               PBRify_UpscalerV4 + UltraSharp nas luzes, 2x, ate 2048px
+  Modelo               PBRify_UpscalerV4 + UltraSharp nas luzes + Normal-RG0 no relevo, 4x, ate 4096px
 
   O que voce quer fazer? (setas + Enter, Esc sai)
   ➜ ▶  Jogar Dead Space 2
@@ -87,7 +149,7 @@ Durante a remasterização, um painel ao vivo mostra cada etapa, uma barra de pr
 
 ```
   ✔  Ler as texturas coletadas
-  ⠹  Remasterizar com IA (PBRify_UpscalerV4 + UltraSharp nas luzes)
+  ⠹  Remasterizar com IA (PBRify_UpscalerV4 + UltraSharp nas luzes + Normal-RG0 no relevo)
   ·  Gerar DDS com mipmaps
   ·  Montar o pacote
   ·  Instalar no jogo
@@ -216,13 +278,14 @@ Ficam no topo do `remaster.sh`:
 | Configuração | Padrão | O que faz |
 |---|---|---|
 | `MODEL` | `4x-PBRify_UpscalerV4` | Qualquer modelo que o [spandrel](https://github.com/chaiNNer-org/spandrel) carregue: ESRGAN, SPAN, DAT, HAT... Veja a [OpenModelDB](https://openmodeldb.info). |
-| `SCALE` | `2` | Fator de aumento para texturas de cor e normal maps. |
+| `SCALE` | `4` | Fator de aumento para texturas de cor e normal maps. |
 | `MASK_SCALE` | `2` | Fator para máscaras, specular e mapas de luz. Ganham pouco e ocupam muita memória. |
-| `MAX_SIZE` | `2048` | Lado máximo de qualquer textura. |
+| `MAX_SIZE` | `4096` | Lado máximo de qualquer textura. |
 | `GLOW_MODEL` | `4x-UltraSharp` | Modelo para luzes, brilhos, fachos e fumaça (classe `glow`), e para qualquer textura em que o modelo principal inventar detalhe que não existia. `GLOW_MODEL=` desliga os dois. |
+| `NORMAL_MODEL` | `4x-Normal-RG0` | Modelo para normal maps, treinado só em normal maps. `NORMAL_MODEL=` volta para reamostragem Lanczos. |
 | `SOFT_MODEL` | vazio | Segundo modelo opcional, mais conservador (ex.: `models/4x-UltraSharp.pth`), para texturas de pouco detalhe. |
 | `GAME` | encontrada sozinha | Pasta do jogo. Normalmente não precisa: ela é descoberta e guardada em `.game-path`. |
-| `WORK` | `work/pbrify2x` | Pasta de trabalho. Troque quando trocar de modelo, para os resultados não se misturarem. |
+| `WORK` | `work/pbrify4x` | Pasta de trabalho (`work/pbrify<SCALE>x`). Troque quando trocar de modelo, para os resultados não se misturarem. |
 
 ---
 
@@ -232,9 +295,9 @@ Ficam no topo do `remaster.sh`:
 |---|---|
 | **`GPU: NAO ENCONTRADA`** | O PyTorch não está vendo a GPU. Na Intel Arc, instale `intel-compute-runtime` e `level-zero-loader`. |
 | **O jogo fecha ao entrar em áreas novas ou depois de muito tempo** | O Dead Space 2 é um programa de 32 bits e pode ficar sem memória. Diminua `MAX_SIZE` para `1024` e rode o `./remaster.sh run` de novo, ou coloque `Pool=default` no `DS2TexInject.ini`. |
-| **Alguma textura ficou estranha** | Aperte **F10** para confirmar. Rode `./remaster.sh preview`, abra a página que ele mostra, ache a textura e coloque o hash dela em `work/pbrify2x/rejected.txt`. A próxima rodada deixa ela de fora. |
+| **Alguma textura ficou estranha** | Aperte **F10** para confirmar. Rode `./remaster.sh preview`, abra a página que ele mostra, ache a textura e coloque o hash dela em `work/pbrify4x/rejected.txt`. A próxima rodada deixa ela de fora. |
 | **O jogo engasga ao entrar em áreas novas** | Confira se o DS2TexInject está atualizado e se o Pillow está instalado (`sudo pacman -S python-pillow`), depois rode `./remaster.sh on`. As texturas passam a ser carregadas já prontas. |
-| **Qualquer outra coisa** | Veja o `work/pbrify2x/remaster.log` e abra uma issue com ele. |
+| **Qualquer outra coisa** | Veja o `work/pbrify4x/remaster.log` e abra uma issue com ele. |
 
 <p align="center"><a href="https://github.com/sidnei-almeida/dead-space-2-ai-remaster/issues"><img alt="Precisa de ajuda Abrir issue" src="https://img.shields.io/badge/Precisa%20de%20ajuda-Abrir%20issue-ff5a3c?style=for-the-badge&labelColor=0d1a1f&logo=github&logoColor=white"></a></p>
 
@@ -248,7 +311,7 @@ Você não precisa desta parte para usar a ferramenta.
 o jogo (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        texturas originais, com o hash do TexMod no nome
         │
         ▼  scan        classifica cada textura: cor, normal map, máscara, pequena demais, cor única
-        ▼  upscale     IA nas texturas de cor; redimensionamento cuidadoso em normal maps e máscaras
+        ▼  upscale     IA nas texturas de cor e nos normal maps; redimensionamento cuidadoso em máscaras
         ▼  encode      volta ao formato original (DXT1, DXT5, ARGB) com todos os mipmaps
         ▼  pack        texmod/zz_ai_remaster.zip  (+ texmod.def)
         ▼  ds2tex.py   texmod/_cache, onde o DS2TexInject encontra durante o jogo
@@ -259,7 +322,7 @@ o jogo (DumpTextures=1) ──► texmod/_dump/0xHASH.dds        texturas origin
 | Tipo | O que acontece |
 |---|---|
 | Cor (diffuse) | IA com bordas espelhadas, para texturas que se repetem não ganharem costura, e depois a trava de cor: as baixas frequências vêm do original, então cores e iluminação continuam fiéis. |
-| Normal map (DXT5nm: X no alpha, Y no verde) | Nunca passa por modelo de foto. É redimensionado, renormalizado, e os canais vermelho e azul, que não são usados, ficam como o jogo espera. |
+| Normal map (DXT5nm: X no alpha, Y no verde) | Nunca passa por modelo de foto. Passa por um modelo treinado só em normal maps (`NORMAL_MODEL`, 4x-Normal-RG0), é renormalizado, e os canais vermelho e azul, que não são usados, ficam como o jogo espera. |
 | Máscaras, specular, mapas de luz | Redimensionamento limpo. A IA criaria costuras entre os retalhos dos mapas de luz. |
 | Alpha | Aumentado separadamente. Em DXT1 volta a ser recorte de 1 bit (grades, folhagem). |
 | Suaves (degradês puros) | Só redimensionamento limpo. Não há detalhe para recuperar, e os modelos de IA inventam textura nelas: anéis e rugas que aparecem no facho da lanterna. |
@@ -309,6 +372,7 @@ Etapas: `scan`, `recheck`, `upscale`, `encode`, `pack`, `preview`, `all`, `statu
 
 - **[4x-PBRify_UpscalerV4](https://openmodeldb.info/models/4x-PBRify-UpscalerV4)**, do Kim2091: o modelo padrão (DAT2, roda em bf16).
 - **[4x-UltraSharp](https://openmodeldb.info/models/4x-UltraSharp)**, do Kim2091: cuida das luzes, brilhos e fumaça (`GLOW_MODEL`), onde o PBRify inventa textura.
+- **[4x-Normal-RG0](https://openmodeldb.info/models/4x-Normal-RG0)**, do RunDevelopment: aumenta os normal maps (`NORMAL_MODEL`), o maior ganho de profundidade de todos.
 - **[spandrel](https://github.com/chaiNNer-org/spandrel)**, da equipe do chaiNNer: carrega quase qualquer arquitetura de upscale.
 - **[OpenModelDB](https://openmodeldb.info)**: o catálogo de modelos da comunidade.
 - **[DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux)**: coleta as texturas originais e carrega as remasterizadas.
@@ -317,4 +381,4 @@ Etapas: `scan`, `recheck`, `upscale`, `encode`, `pack`, `preview`, `all`, `statu
 
 ## Licença
 
-[MIT](LICENSE). Os modelos de IA não fazem parte deste projeto e têm as próprias licenças: o 4x-PBRify_UpscalerV4 é CC0, então pacotes feitos só com ele podem ser compartilhados livremente. O 4x-UltraSharp é CC BY-NC-SA 4.0, e a configuração padrão usa ele nas luzes e brilhos: pacotes feitos com o padrão podem ser compartilhados com crédito, sob a mesma licença e nunca vendidos. Rode com `GLOW_MODEL=` para um pacote só com o PBRify. Confira a licença de qualquer outro modelo antes de compartilhar pacotes feitos com ele. O Dead Space 2 e as texturas dele pertencem à Electronic Arts.
+[MIT](LICENSE). Os modelos de IA não fazem parte deste projeto e têm as próprias licenças: o 4x-PBRify_UpscalerV4 e o 4x-Normal-RG0 são CC0, então pacotes feitos só com eles podem ser compartilhados livremente. O 4x-UltraSharp é CC BY-NC-SA 4.0, e a configuração padrão usa ele nas luzes e brilhos: pacotes feitos com o padrão podem ser compartilhados com crédito, sob a mesma licença e nunca vendidos. Rode com `GLOW_MODEL=` para um pacote só com o PBRify. Confira a licença de qualquer outro modelo antes de compartilhar pacotes feitos com ele. O Dead Space 2 e as texturas dele pertencem à Electronic Arts.

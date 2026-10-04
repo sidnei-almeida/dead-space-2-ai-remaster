@@ -31,13 +31,19 @@ ULTRASHARP_URL="https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraS
 #   SOFT_MODEL=models/4x-UltraSharp.pth ./remaster.sh run
 SOFT_MODEL="${SOFT_MODEL:-}"
 SOFT_MODEL_URL="$ULTRASHARP_URL"
-SCALE="${SCALE:-2}"            # texturas de cor e normal maps
+# Normal maps (relevo): modelo treinado so em normal maps. Sem ele o relevo e apenas redimensionado
+# (Lanczos) e fica borrado ao lado da cor refeita pela IA, o que da a sensacao de textura "chapada".
+# Aprovado visualmente em 04/10 (work/comparacoes/normal_0x1C8A8BD9_*.png). NORMAL_MODEL= volta ao Lanczos.
+NORMAL_MODEL="${NORMAL_MODEL-models/4x-Normal-RG0.pth}"
+NORMAL_MODEL_URL="https://github.com/RunDevelopment/rundev-models/raw/main/normals/4x-Normal-RG0.pth"
+# Os modelos sao 4x nativos. Em 2x a saida era reduzida pela metade e ficava borrada (comparado em 04/10,
+# work/comparacoes/4x_*.png); 4x e o padrao desde entao.
+SCALE="${SCALE:-4}"            # texturas de cor e normal maps
 MASK_SCALE="${MASK_SCALE:-2}"  # mascaras, specular e mapas de luz (ganham pouco e ocupam muita memoria)
-MAX_SIZE="${MAX_SIZE:-2048}"   # lado maximo de qualquer textura
+MAX_SIZE="${MAX_SIZE:-4096}"   # lado maximo de qualquer textura
 WORK="${WORK:-work/pbrify${SCALE}x}"
-# Rodada experimental em 4x (o 2x fica guardado em work/pbrify2x; o pacote no jogo e substituido):
-#   SCALE=4 MAX_SIZE=4096 ./remaster.sh run
-# Para voltar ao 2x depois: ./remaster.sh run (reaproveita o que ja foi feito, so refaz DDS e pacote)
+# Rodada mais leve em 2x (cada escala tem sua pasta em work/; o pacote no jogo e substituido):
+#   SCALE=2 MAX_SIZE=2048 ./remaster.sh run
 PACK="zz_ai_remaster.zip"
 STALL_SECONDS=300  # sem progresso por esse tempo = GPU travada: reinicia e continua de onde parou
 MAX_RESTARTS=5
@@ -218,6 +224,7 @@ OPTS=(--game "$GAME" --work "$WORK" --scale "$SCALE" --mask-scale "$MASK_SCALE" 
 MODEL_OPTS=(--model "$MODEL")
 [ -n "$GLOW_MODEL" ] && MODEL_OPTS+=(--glow-model "$GLOW_MODEL")
 [ -n "$SOFT_MODEL" ] && MODEL_OPTS+=(--soft-model "$SOFT_MODEL")
+[ -n "$NORMAL_MODEL" ] && MODEL_OPTS+=(--normal-model "$NORMAL_MODEL")
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
 die() { say "ERRO: $*"; notify "Remaster parou com erro" "$*"; exit 1; }
@@ -257,6 +264,8 @@ model_url() {
     case "$(basename "$1")" in
         4x-PBRify_UpscalerV4.pth) echo "$MODEL_URL" ;;
         4x-UltraSharp.pth) echo "$ULTRASHARP_URL" ;;
+        4x-Normal-RG0.pth) echo "$NORMAL_MODEL_URL" ;;
+        4x-Normal-RG0-BC1.pth) echo "${NORMAL_MODEL_URL%RG0.pth}RG0-BC1.pth" ;;
         *) [ "$1" = "$MODEL" ] && echo "$MODEL_URL" ;;
     esac
 }
@@ -265,6 +274,7 @@ ensure_models() {
     ensure_model "$MODEL" "$(model_url "$MODEL")" "modelo principal"
     ensure_model "$GLOW_MODEL" "$(model_url "$GLOW_MODEL")" "luzes, brilhos e fumaca"
     ensure_model "$SOFT_MODEL" "$(model_url "$SOFT_MODEL")" "texturas lisas"
+    ensure_model "$NORMAL_MODEL" "$(model_url "$NORMAL_MODEL")" "normal maps"
 }
 
 # o DS2TexInject e quem coloca as texturas no jogo; sem ele o pacote nao aparece
@@ -476,6 +486,7 @@ model_label() {  # "PBRify_UpscalerV4 + UltraSharp nas luzes"
     local m; m=$(basename "$MODEL" .pth); m=${m#4x-}
     [ -n "$GLOW_MODEL" ] && m="$m + $(basename "${GLOW_MODEL#*4x-}" .pth) nas luzes"
     [ -n "$SOFT_MODEL" ] && m="$m + $(basename "${SOFT_MODEL#*4x-}" .pth) nas lisas"
+    [ -n "$NORMAL_MODEL" ] && m="$m + $(basename "${NORMAL_MODEL#*4x-}" .pth) no relevo"
     printf '%s' "$m"
 }
 
@@ -712,6 +723,7 @@ ${b}CONFIGURACAO ATUAL${n} (edite no topo deste arquivo)
   modelo        $MODEL
   nas luzes     ${GLOW_MODEL:-(o mesmo)}   luzes, brilhos e fumaca, e tudo em que o modelo principal inventar textura
   nas lisas     ${SOFT_MODEL:-(o mesmo)}   opcional, para texturas de pouco detalhe; degrades puros nao passam por IA
+  no relevo     ${NORMAL_MODEL:-(Lanczos, sem IA)}   normal maps
   escala        ${SCALE}x cor e normal maps, ${MASK_SCALE}x mascaras e mapas de luz
   lado maximo   ${MAX_SIZE}px
   trabalho      $WORK
