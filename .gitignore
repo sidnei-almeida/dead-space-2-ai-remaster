@@ -5,3 +5,4 @@ models/*
 __pycache__/
 *.zip
 .game-path
+.ui-lang

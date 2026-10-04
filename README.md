@@ -117,50 +117,51 @@ Not a fan of typing commands? Just run:
 ./remaster.sh
 ```
 
-and a menu opens. Pick with the arrow keys and press Enter:
+and a menu opens, in English or Portuguese depending on your system (the menu has a switch). Pick with the arrow keys and press Enter:
 
 ```
   DEAD SPACE 2  AI TEXTURE REMASTER
   ────────────────────────────────────────────────────
 
-  Jogo                 ○ fechado
-  Remaster no jogo     ● ativo (1.3G)
-  Coleta               ● LIGADA (o jogo salva cada textura nova)
-  Ultima rodada        as 22:17, levou 2 min
+  Game                 ○ closed
+  Remaster in game     ● on (1.3G)
+  Collecting           ● ON (the game saves every new texture)
+  Last run             at 22:17, took 2 min
 
-  Texturas coletadas   5292
-  Ja remasterizadas    3458
-  Puladas              831  (pequenas demais ou de cor unica)
-  Dos seus mods        86  (seus .tpf ja cuidam delas)
-  Esperando            917 novas, ainda nao processadas
-  Modelo               PBRify_UpscalerV4 + UltraSharp nas luzes + Normal-RG0 no relevo, 4x, ate 4096px
+  Textures collected   5292
+  Remastered           3458
+  Skipped              831  (too small or single-color)
+  From your mods       86  (your .tpf packs already cover them)
+  Waiting              917 queued, not processed yet
+  Model                PBRify_UpscalerV4 + UltraSharp on lights + Normal-RG0 on normal maps, 4x, up to 4096px
 
-  O que voce quer fazer? (setas + Enter, Esc sai)
-  ➜ ▶  Jogar Dead Space 2
-    ✦  Remasterizar as texturas novas (917 esperando)
-    ◉  Desligar a coleta de texturas (agora esta LIGADA)
-    ◐  Desativar o remaster no jogo (agora esta ATIVO)
-    ⇄  Comparar original x IA (abre no navegador)
-    ≡  Ver o log da ultima rodada
-    ⚙  Instalar ou consertar o ambiente
-    ?  Ajuda
-    ✕  Sair
+  What do you want to do? (arrows + Enter, Esc quits)
+  ➜ ▶  Play Dead Space 2
+    ✦  Remaster the new textures (917 waiting)
+    ◉  Stop collecting textures (now ON)
+    ◐  Turn the remaster off in game (now ON)
+    ⇄  Compare original vs AI (opens in the browser)
+    ≡  View the log of the last run
+    ⚙  Install or repair the environment
+    🌐  Language: English (switch to português)
+    ?  Help
+    ✕  Quit
 ```
 
 While remastering, a live dashboard shows each step, a progress bar, time left and how many textures of each kind are done:
 
 ```
-  ✔  Ler as texturas coletadas
-  ⠹  Remasterizar com IA (PBRify_UpscalerV4 + UltraSharp nas luzes + Normal-RG0 no relevo)
-  ·  Gerar DDS com mipmaps
-  ·  Montar o pacote
-  ·  Instalar no jogo
+  ✔  Read the collected textures
+  ⠹  Remaster with AI (PBRify_UpscalerV4 + UltraSharp on lights + Normal-RG0 on normal maps)
+  ·  Generate DDS with mipmaps
+  ·  Build the pack
+  ·  Install in the game
 
-  ██████████████░░░░░░░░░░░░░░░░░░░░   43.2%   396 / 917 texturas
-  decorrido 1m12s   faltam ~1m35s   erros 0
-  cor 201   mascaras 160   normal maps 35
+  ██████████████░░░░░░░░░░░░░░░░░░░░   43.2%   396 / 917 textures
+  elapsed 1m12s   left ~1m35s   errors 0
+  color 201   masks 160   normal maps 35
 
-  Ctrl+C cancela (o que ja foi feito fica salvo)
+  Ctrl+C cancels (what is done stays saved)
 ```
 
 The panel shows the current state in color, the on/off options say what they will do, and **▶ Jogar** launches the game from Steam. Everything below can be done from the menu. `./remaster.sh --help` explains every command.
@@ -272,6 +273,7 @@ Launch Dead Space 2 from Steam as usual.
 | `./remaster.sh on` | Turns it back on. |
 | `./remaster.sh setup` | Installs or repairs the environment, downloads missing models and checks DS2TexInject. |
 | `./remaster.sh game [folder]` | Searches all disks for the game again, or uses the given folder. |
+| `./remaster.sh lang pt\|en` | Interface language (also in the menu). Without it, the system language decides; `UI_LANG=en ./remaster.sh` overrides for one run. |
 
 ## Settings
 

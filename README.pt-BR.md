@@ -143,6 +143,7 @@ e um menu abre. Escolha com as setas e aperte Enter:
     ⇄  Comparar original x IA (abre no navegador)
     ≡  Ver o log da ultima rodada
     ⚙  Instalar ou consertar o ambiente
+    🌐  Idioma: portugues (mudar para English)
     ?  Ajuda
     ✕  Sair
 ```
@@ -272,6 +273,7 @@ Abra o Dead Space 2 pelo Steam, normalmente.
 | `./remaster.sh on` | Ativa de novo. |
 | `./remaster.sh setup` | Instala ou conserta o ambiente, baixa os modelos que faltam e confere o DS2TexInject. |
 | `./remaster.sh game [pasta]` | Procura o jogo de novo em todos os discos, ou usa a pasta informada. |
+| `./remaster.sh lang pt\|en` | Idioma da interface (também no menu). Sem ele, vale o idioma do sistema; `UI_LANG=en ./remaster.sh` muda só por uma vez. |
 
 ## Configurações
 
