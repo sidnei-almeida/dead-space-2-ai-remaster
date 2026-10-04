@@ -76,6 +76,8 @@ Até 4096 px de lado, mipmaps completos, **18 GB** em disco, cerca de 9 horas nu
 
 O pacote da rodada acima está na página de [**Releases**](https://github.com/sidnei-almeida/dead-space-2-ai-remaster/releases/latest): 14.400 texturas, 18 GB, divididos em partes de menos de 2 GB por causa do limite de tamanho do GitHub. Você precisa de uns **36 GB livres** (o pacote mais o cache que o DS2TexInject monta a partir dele), e não precisa de GPU.
 
+> **O Return to Titan é obrigatório.** Este pacote foi feito como complemento do mod de texturas *Return to Titan*: as 250 texturas que ele já cobre (e os pacotes de trajes 4K) ficaram de fora de propósito, então sem ele essas continuam originais. Instale os `.tpf` do Return to Titan na pasta `texmod` antes.
+
 1. Instale o [DS2TexInject](https://github.com/sidnei-almeida/dead-space-2-texmod-linux) e abra o jogo uma vez.
 2. Baixe **todas** as partes `zz_ai_remaster.zip.0NN` e o `zz_ai_remaster.sha256` para a pasta `texmod` do jogo.
 3. Junte as partes, confira e monte o cache, com o jogo fechado:
@@ -87,7 +89,7 @@ sha256sum -c zz_ai_remaster.sha256          # opcional, leva um minuto
 python3 ../DS2TexInject/ds2tex.py .
 ```
 
-4. Jogue. **F10** alterna entre original e remaster. Seus pacotes `.tpf` continuam com prioridade: o pacote pula todo hash que eles já cobrem.
+4. Jogue. **F10** alterna entre original e remaster. Seus pacotes `.tpf` sempre têm prioridade sobre este.
 
 O pacote é compartilhado sob **CC BY-NC-SA 4.0** (um dos modelos exige, veja [Licença](#licença)): crédito, mesma licença, nunca vendido.
 
